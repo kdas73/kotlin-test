@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: kotlin-test
+  threads:
+    virtual:
+      enabled: true # Tomcat request handling, @Async and scheduling run on virtual threads
+  datasource:
+    # sqlite-jdbc does not create parent directories; data/ is kept in git via data/.gitkeep
+    url: jdbc:sqlite:data/app.db?foreign_keys=true&journal_mode=WAL&busy_timeout=5000
+    hikari:
+      maximum-pool-size: 4 # SQLite allows a single writer; keep the pool small
+  flyway:
+    locations: classpath:db/migration
+  mvc:
+    problemdetails:
+      enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always

@@ -1,0 +1,6 @@
+spring:
+  datasource:
+    # Shared-cache in-memory DB: lives as long as the pool holds at least one connection.
+    url: jdbc:sqlite:file::memory:?cache=shared&foreign_keys=true
+    hikari:
+      minimum-idle: 1
