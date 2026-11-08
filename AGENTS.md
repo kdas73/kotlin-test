@@ -132,15 +132,18 @@ src/main/kotlin/com/example/kotlintest/
 src/main/resources/
 ├── application.yaml              # main config
 └── db/migration/                 # Flyway migrations (V1__init.sql, ...)
-src/test/kotlin/...               # tests mirror the main package structure
+src/test/kotlin/com/example/kotlintest/
+├── acceptance/                   # black-box acceptance tests per story (Story<NNN>...AcceptanceTest.kt), locked after test review
+└── ...                           # other tests mirror the main package structure
 src/test/resources/application-test.yaml   # `test` profile (in-memory SQLite)
 data/                             # runtime SQLite DB (app.db) — gitignored, only .gitkeep is tracked
 docs/stories/                     # work items: README.md (rules), TEMPLATE.md, STORY-NNN-*.md
+scripts/locked-tests.py           # hash / verify locked acceptance tests (Python 3, standard library only)
 .claude/
 ├── settings.json                 # project hooks registration
 ├── hooks/                        # PreToolUse hooks (Python 3, standard library only):
-│                                 #   protect-completed-stories.py, block-git-history.py
-└── skills/                       # story-writer, implementer, reviewer
+│                                 #   protect-completed-stories.py, protect-locked-tests.py, block-git-history.py
+└── skills/                       # story-writer, test-writer, test-reviewer, implementer, reviewer
 ```
 
 ## Kotlin & Spring conventions
@@ -198,6 +201,26 @@ docs/stories/                     # work items: README.md (rules), TEMPLATE.md, 
 
 ## Testing
 
+### Test-first (TDD) for stories
+
+Every story is implemented **test-first**. The full rules are in [docs/stories/README.md](docs/stories/README.md) →
+"TDD and locked tests".
+1. **test-writer** writes black-box acceptance tests for every acceptance criterion **before** any production code
+   exists. They live in `src/test/kotlin/com/example/kotlintest/acceptance/Story<NNN><Name>AcceptanceTest.kt`.
+2. **test-reviewer** verifies them and **locks** them by recording their SHA-256 in the story.
+3. **implementer** writes production code until the locked tests pass. **Locked tests are never modified, deleted,
+   skipped or weakened by the implementer.** This is enforced by the `.claude/hooks/protect-locked-tests.py` hook and
+   checked with `python3 scripts/locked-tests.py verify STORY-NNN`. The implementer may add its own tests in other files.
+
+Acceptance tests are black-box:
+- `@SpringBootTest(webEnvironment = RANDOM_PORT)` + `@AutoConfigureRestTestClient` + `RestTestClient` with raw JSON
+- `JdbcTemplate` with plain SQL for setup and for checking persisted state
+- no imports from `com.example.kotlintest`
+- test names start with the AC ID
+- each test isolates its data and is deterministic
+
+### General rules
+
 - JUnit 5 with `kotlin-test` assertions. Test names use backticks: ``fun `returns 404 for unknown book`()``.
 - Pick the narrowest slice:
   - `@WebMvcTest` for controllers (with `@MockitoBean` for collaborators)
@@ -215,23 +238,34 @@ docs/stories/                     # work items: README.md (rules), TEMPLATE.md, 
 
 Every feature or change is described by a **story** in `docs/stories/STORY-NNN-slug.md`. The full rules are in
 [docs/stories/README.md](docs/stories/README.md), and the file format is in [docs/stories/TEMPLATE.md](docs/stories/TEMPLATE.md).
-A story contains Requirements, Technical details, Acceptance criteria, Execution evidence and Review.
+A story contains Requirements, Technical details, Acceptance criteria, Acceptance tests, Test review, Execution evidence
+and Review.
 
 ```
-Pending ──► In Progress ──► In Review ──► Completed (immutable)
-                 ▲               │
-                 └───────────────┘ changes requested
+Pending ─► Test Writing ─► Test Review ─► Ready ─► In Progress ─► In Review ─► Completed (immutable)
+                ▲               │                    │   ▲            │
+                └───────────────┘                    │   └────────────┘
+               test changes requested                │   changes requested
+                ▲                                    │
+                └────────────────────────────────────┘
+                 test defect (only with the user's approval)
 ```
 
 | Step | Skill (run manually, each in a fresh context) | Transition |
 |------|-----------------------------------------------|------------|
 | Analyse requirements, create stories | [`/story-writer <requirements>`](.claude/skills/story-writer/SKILL.md) | → Pending |
-| Implement a story, record Execution evidence | [`/implementer STORY-NNN`](.claude/skills/implementer/SKILL.md) | Pending → In Progress → In Review |
-| Verify requirements and acceptance criteria | [`/reviewer STORY-NNN`](.claude/skills/reviewer/SKILL.md) | In Review → Completed, or back to In Progress |
+| Write failing acceptance tests | [`/test-writer STORY-NNN`](.claude/skills/test-writer/SKILL.md) | Pending → Test Writing → Test Review |
+| Review and lock the acceptance tests | [`/test-reviewer STORY-NNN`](.claude/skills/test-reviewer/SKILL.md) | Test Review → Ready, or back to Test Writing |
+| Implement until the locked tests pass | [`/implementer STORY-NNN`](.claude/skills/implementer/SKILL.md) | Ready → In Progress → In Review |
+| Verify requirements, ACs and the lock | [`/reviewer STORY-NNN`](.claude/skills/reviewer/SKILL.md) | In Review → Completed, or back to In Progress |
 
 Key rules:
-- Requirements and acceptance criteria are frozen once a story leaves `Pending`. The implementer never changes them.
-- Execution evidence and Review are **append-only** (`Attempt N`, `Review N`).
+- **WIP limit 1:** only one story may be active (from `Test Writing` through `In Review`) at a time.
+- Requirements and acceptance criteria are frozen once a story leaves `Pending`. Only the user may change them.
+- **Locked acceptance tests** can't be changed by the implementer. A suspected test defect is recorded and escalated to
+  the user (see docs/stories/README.md).
+- Acceptance tests, Test review, Execution evidence and Review are **append-only** (`Test design N`, `Test review N`,
+  `Attempt N`, `Review N`).
 - **Completed stories are immutable.** Never edit them; create a follow-up story with `related: [STORY-NNN]`.
   The `.claude/hooks/protect-completed-stories.py` hook blocks Edit/Write on them. Never edit story files via shell
   commands, because the hook cannot see those.
@@ -240,10 +274,11 @@ Key rules:
 ## Agent workflow — definition of done
 
 1. Read the relevant docs (see above) before using unfamiliar or Boot-4-changed APIs.
-   When working on a story, follow the implementer or reviewer procedure exactly.
+   When working on a story, follow the procedure of your role's skill exactly.
 2. Make the change following the conventions in this file. Add a Flyway migration for every schema change.
-3. Add or update tests.
-4. Run `./gradlew build`. It must pass with no new warnings. Do not report work as done if it fails.
+3. Add or update tests. For story work, the locked acceptance tests come first and are never changed by the implementer.
+4. Run `./gradlew build`. It must pass with no new warnings. Do not report work as done if it fails. For story work,
+   `python3 scripts/locked-tests.py verify STORY-NNN` must also pass.
 5. **Never commit or push** (see [Git: agents never commit](#git-agents-never-commit)). Leave the changes uncommitted and
    tell the user what is ready. Never stage secrets, `data/*.db*` files or `build/` output.
 6. When a convention changes (new library, new pattern), update this `AGENTS.md` in the same change.

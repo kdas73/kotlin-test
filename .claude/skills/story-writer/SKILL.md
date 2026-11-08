@@ -47,11 +47,13 @@ If it is a path to a file, read that file.
    - **Out of scope**: what is explicitly not included.
    - **Technical details**: endpoints (method, path, request/response JSON, status codes), migration (tables, columns,
      types, constraints, `STRICT`), packages and classes, and constraints. Everything must follow AGENTS.md (REST
-     conventions, ProblemDetail, SQLite rules, virtual threads).
-   - **Acceptance criteria** `AC-n` in Given / When / Then. Each AC must be verifiable by an automated test or a
-     concrete command. Cover the happy path, validation errors, not-found and conflict cases. Every requirement must be
-     covered by at least one AC.
-   - Leave *Execution evidence* and *Review* as in the template (comments only).
+     conventions, ProblemDetail, SQLite rules, virtual threads). Endpoints, JSON field names and table/column names
+     must be **exact**: the test-writer writes the locked acceptance tests from them before any code exists.
+   - **Acceptance criteria** `AC-n` in Given / When / Then. Each AC must be verifiable **black-box**: through the HTTP
+     API and/or by checking database state with SQL (we work test-first; see docs/stories/README.md → "TDD and locked
+     tests"). Cover the happy path, validation errors, not-found and conflict cases. Every requirement must be covered by
+     at least one AC.
+   - Leave *Acceptance tests*, *Test review*, *Execution evidence* and *Review* as in the template (comments only).
 6. **Self-check** each story before finishing:
    - every `R-n` is covered by an AC
    - every AC is objectively verifiable
