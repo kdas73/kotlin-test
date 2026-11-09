@@ -135,7 +135,7 @@ Use `sandbox` for manual checks with `curl`, and stop every mode you started bef
 src/main/kotlin/com/example/kotlintest/
 ├── KotlinTestApplication.kt      # entry point
 ├── config/                       # cross-cutting configuration (SqliteDialect, Instant<->TEXT converters, Clock)
-├── common/                       # shared code: ApiException + ApiExceptionHandler, PageResponse, money/, idempotency/
+├── common/                       # shared code: ApiException + ApiExceptionHandler, PageResponse, money/, idempotency/, validation/
 └── <feature>/                    # one package per feature (package-by-feature), e.g. `book/`
     ├── BookController.kt         # REST endpoints, DTO <-> domain mapping
     ├── BookService.kt            # business logic, transactions
@@ -167,7 +167,9 @@ scripts/app.py                    # build, test, start/stop the app in work or s
 - **Constructor injection only** (primary constructor, `private val`). No field injection, no `lateinit` beans.
 - Prefer `val` and immutable data. **Never use `!!`** — model nullability explicitly; the compiler runs with `-Xjsr305=strict`.
 - DTOs are `data class`es and are **separate from persistence entities**. Never expose entities from controllers.
-- Validate request DTOs with Jakarta Validation (`@field:NotBlank`, `@field:Size`, ...) and `@Valid` on the controller parameter.
+- Validate request DTOs with Jakarta Validation (`@field:NotBlank`, `@field:CodePointLength`, ...) and `@Valid` on the controller parameter.
+- Text length limits count Unicode code points. Use the code-point constraint from `common/validation/`
+  (`@field:CodePointLength(min = 1, max = 100)`) instead of `@Size` on `String` fields.
 - Errors are returned as RFC 9457 `ProblemDetail` (`spring.mvc.problemdetails.enabled: true`). Domain exceptions are mapped
   in a single `@RestControllerAdvice` in `common/`. Do not leak stack traces or SQL in responses.
 - Business logic lives in services; controllers stay thin. `@Transactional` goes on service methods.
