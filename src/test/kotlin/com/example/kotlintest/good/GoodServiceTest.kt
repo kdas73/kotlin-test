@@ -46,6 +46,21 @@ class GoodServiceTest {
     }
 
     @Test
+    fun `takeStock writes the reduced quantity with the loaded version and a new updatedAt`() {
+        `when`(goods.save(good.copy(quantity = 7, updatedAt = Instant.parse(NOW)))).thenAnswer { it.getArgument(0) }
+
+        assertEquals(7, service.takeStock(good, 3).quantity)
+    }
+
+    @Test
+    fun `takeStock rejects a quantity outside 1 to the stock without writing`() {
+        listOf(0, -1, 11).forEach { quantity ->
+            assertFailsWith<IllegalArgumentException> { service.takeStock(good, quantity) }
+        }
+        verify(goods, never()).save(any())
+    }
+
+    @Test
     fun `setting the current values does not write`() {
         `when`(goods.findById(1)).thenReturn(Optional.of(good))
 

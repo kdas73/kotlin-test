@@ -22,6 +22,8 @@ enum class TransactionType {
  * A balanced money movement (aggregate root). [amount] is the absolute amount moved in minor units (cents); the
  * [entries] are `-amount` on the account the money leaves and `+amount` on the account it enters, so they sum to `0`.
  *
+ * [orderId] is the order the transaction pays or refunds (`null` for deposits).
+ *
  * Created only by [LedgerService.post]. Transactions are never changed after they are written.
  */
 @Table("transactions")
@@ -29,6 +31,7 @@ data class Transaction(
     @Id val id: Long? = null,
     val type: TransactionType,
     val amount: Long,
+    val orderId: Long? = null,
     val createdAt: Instant,
     @MappedCollection(idColumn = "transaction_id")
     val entries: Set<TransactionEntry>,

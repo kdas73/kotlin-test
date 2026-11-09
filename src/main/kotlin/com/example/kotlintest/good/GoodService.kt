@@ -53,6 +53,20 @@ class GoodService(
         return goods.save(changed.copy(updatedAt = now()))
     }
 
+    /**
+     * Takes [quantity] items out of the stock of [good], which the caller loaded in the current transaction. The write
+     * uses the good's `@Version`, so a concurrent change of the good after the caller read it makes this fail. Joins the
+     * caller's transaction.
+     *
+     * @param quantity positive, at most `good.quantity`
+     * @throws org.springframework.dao.OptimisticLockingFailureException if the good was changed after the caller read it
+     */
+    @Transactional
+    fun takeStock(good: Good, quantity: Int): Good {
+        require(quantity in 1..good.quantity) { "Cannot take $quantity of ${good.quantity} items in stock" }
+        return goods.save(good.copy(quantity = good.quantity - quantity, updatedAt = now()))
+    }
+
     private fun now(): Instant = Instant.now(clock).truncatedTo(ChronoUnit.MILLIS)
 
     private companion object {

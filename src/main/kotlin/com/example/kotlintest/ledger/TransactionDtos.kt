@@ -5,12 +5,13 @@ import java.time.Instant
 
 /**
  * A transaction with its entries. `amount` and `entries[].amount` are money strings (see [Money]); entry amounts are
- * signed. `entries` are ordered by amount ascending, so the negative entry comes first.
+ * signed. `orderId` is the order the transaction belongs to, or `null` (deposits). `entries` are ordered by amount ascending, so the negative entry comes first.
  */
 data class TransactionResponse(
     val id: Long,
     val type: TransactionType,
     val amount: String,
+    val orderId: Long?,
     val createdAt: Instant,
     val entries: List<TransactionEntryResponse>,
 ) {
@@ -19,6 +20,7 @@ data class TransactionResponse(
             id = checkNotNull(transaction.id) { "Transaction is not persisted" },
             type = transaction.type,
             amount = Money.format(transaction.amount),
+            orderId = transaction.orderId,
             createdAt = transaction.createdAt,
             entries = transaction.entries
                 .sortedWith(compareBy(TransactionEntry::amount, TransactionEntry::accountId))

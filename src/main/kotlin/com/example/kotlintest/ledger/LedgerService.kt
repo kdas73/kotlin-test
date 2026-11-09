@@ -28,12 +28,13 @@ class LedgerService(
      * check) are still valid when the transaction commits.
      *
      * @param amount positive, in minor units (cents)
+     * @param orderId the order the transaction pays or refunds, or `null` (deposits); must already exist
      * @throws org.springframework.dao.OptimisticLockingFailureException if one of the accounts was changed after the
      *   caller read it
      * @throws ArithmeticException if a balance would overflow a `Long`
      */
     @Transactional
-    fun post(type: TransactionType, from: Account, to: Account, amount: Long): Transaction {
+    fun post(type: TransactionType, from: Account, to: Account, amount: Long, orderId: Long? = null): Transaction {
         require(amount > 0) { "Transaction amount must be positive, was $amount" }
         val fromId = checkNotNull(from.id) { "Account is not persisted" }
         val toId = checkNotNull(to.id) { "Account is not persisted" }
@@ -45,6 +46,7 @@ class LedgerService(
             Transaction(
                 type = type,
                 amount = amount,
+                orderId = orderId,
                 createdAt = Instant.now(clock).truncatedTo(ChronoUnit.MILLIS),
                 entries = setOf(
                     TransactionEntry(accountId = fromId, amount = -amount),
@@ -53,6 +55,9 @@ class LedgerService(
             ),
         )
     }
+
+    /** The ID of the transaction of [type] that belongs to the order [orderId], or `null` if there is none. */
+    fun findTransactionId(orderId: Long, type: TransactionType): Long? = transactions.findIdByOrderIdAndType(orderId, type.name)
 
     fun get(id: Long): Transaction = transactions.findById(id).orElseThrow { TransactionNotFoundException(id) }
 }

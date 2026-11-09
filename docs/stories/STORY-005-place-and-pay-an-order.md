@@ -1,9 +1,9 @@
 ---
 id: STORY-005
 title: Place and pay an order
-status: Pending
+status: Completed
 created: 2026-11-08
-updated: 2026-11-08
+updated: 2026-11-09
 depends_on: [STORY-003, STORY-004]
 related: []
 ---
@@ -15,6 +15,12 @@ related: []
 | Date       | From | To      | By           | Note          |
 |------------|------|---------|--------------|---------------|
 | 2026-11-08 | —    | Pending | story-writer | Story created |
+| 2026-11-09 | Pending | Test Writing | test-writer | Writing acceptance tests |
+| 2026-11-09 | Test Writing | Test Review | test-writer | Test design 1: 28 acceptance tests, red for the expected reasons |
+| 2026-11-09 | Test Review | Ready | test-reviewer | Tests locked |
+| 2026-11-09 | Ready | In Progress | implementer | Implementation started |
+| 2026-11-09 | In Progress | In Review | implementer | Attempt 1: build green, 28 locked tests pass, lock verified |
+| 2026-11-09 | In Review | Completed | reviewer | Review 1: Approved (2 minor findings: F-1, F-2) |
 
 ## Context
 
@@ -279,6 +285,77 @@ src/test/kotlin/com/example/kotlintest/acceptance/Story<NNN><Name>AcceptanceTest
 **Notes:** test data setup, assumptions, anything the test reviewer should know.
 -->
 
+### Test design 1 — 2026-11-09
+
+**Files:**
+- `src/test/kotlin/com/example/kotlintest/acceptance/Story005PlaceOrderAcceptanceTest.kt`
+
+**AC coverage:**
+
+| AC    | Test (class › method)                                                                                                  |
+|-------|------------------------------------------------------------------------------------------------------------------------|
+| AC-1  | `Story005PlaceOrderAcceptanceTest` › `AC-1 places an order and returns 201 with Location, the order, and the ledger and stock changes` |
+| AC-2  | `Story005PlaceOrderAcceptanceTest` › `AC-2 the payment transaction has orderId and the order entries, a deposit transaction has orderId null` |
+| AC-3  | `Story005PlaceOrderAcceptanceTest` › `AC-3 a later price change does not change the unit price and total of an existing order` |
+| AC-4  | `Story005PlaceOrderAcceptanceTest` › `AC-4 rejects an order the balance does not cover with 409 Insufficient funds and changes nothing` |
+| AC-5  | `Story005PlaceOrderAcceptanceTest` › `AC-5 rejects an order larger than the stock with 409 Insufficient stock and changes nothing`; `AC-5 returns Insufficient stock when both the stock and the balance are too low` |
+| AC-6  | `Story005PlaceOrderAcceptanceTest` › `AC-6 an order that uses the whole balance and the whole stock succeeds`           |
+| AC-7  | `Story005PlaceOrderAcceptanceTest` › `AC-7 a repeated order with the same key is replayed and pays once`                |
+| AC-8  | `Story005PlaceOrderAcceptanceTest` › `AC-8 concurrent identical orders with the same key pay once`                      |
+| AC-9  | `Story005PlaceOrderAcceptanceTest` › `AC-9 concurrent orders with different keys never overdraw the account`            |
+| AC-10 | `Story005PlaceOrderAcceptanceTest` › `AC-10 concurrent orders of two users never oversell the last item`                |
+| AC-11 | `Story005PlaceOrderAcceptanceTest` › `AC-11 an order for an unknown user returns 404 and changes nothing`; `AC-11 an order for an unknown good returns 404 and changes nothing` |
+| AC-12 | `Story005PlaceOrderAcceptanceTest` › `AC-12 (a)` … `AC-12 (g)` (one test per invalid body); `AC-12 rejects a valid order without Idempotency-Key with 400 and changes nothing` |
+| AC-13 | `Story005PlaceOrderAcceptanceTest` › `AC-13 reads an order by id and returns 404 problem detail for an unknown id`      |
+| AC-14 | `Story005PlaceOrderAcceptanceTest` › `AC-14 lists the orders of one user with pagination`                               |
+| AC-15 | `Story005PlaceOrderAcceptanceTest` › `AC-15 the database rejects a second ORDER_PAYMENT transaction for the same order`; `AC-15 the database rejects a negative user account balance` |
+| AC-16 | `Story005PlaceOrderAcceptanceTest` › `AC-16 every transaction is balanced, every balance equals its entries, nothing is negative` |
+| AC-17 | `Story005PlaceOrderAcceptanceTest` › `AC-17 computes the total exactly in integer minor units`; `AC-17 handles the largest price exactly` |
+
+**Red run:** `python3 scripts/app.py test` (`./gradlew test`): compiles; 206 tests, 28 failures — all 28 are the new
+STORY-005 tests; all 178 pre-existing tests pass.
+
+| Test | Failure reason (expected before implementation) |
+|------|--------------------------------------------------|
+| AC-1, AC-2, AC-3, AC-6, AC-7, AC-8, AC-13, both AC-17 | `POST /api/v1/orders` returns `404 Not Found` ("No static resource api/v1/orders"): endpoint does not exist yet |
+| AC-9, AC-10 | all concurrent `POST /api/v1/orders` responses are `404` (0 × `201`): endpoint does not exist yet |
+| AC-14, both AC-15, AC-16 | setup order via `POST /api/v1/orders` returns `404`: endpoint does not exist yet |
+| AC-4, both AC-5, both AC-11, AC-12 (a)–(g), AC-12 without key | `SELECT count(*) FROM orders` fails with `SQLITE_ERROR` (no such table `orders`): table does not exist yet |
+
+**Notes:**
+- **Data setup.** Nothing is deleted (the in-memory DB is shared by all test classes, as in STORY-004). Every test
+  registers its own users (STORY-001 API), sets balances through the deposit API (STORY-004), creates its own goods
+  (STORY-003 API) and uses new UUID idempotency keys, so the ledger invariants hold. "A user with balance `"0.00"`" is a
+  user without a deposit. The `REVENUE` balance is checked as a before/after difference.
+- **"Nothing changes"** (AC-4, AC-5, AC-11, AC-12) is checked as: user account `balance`, the good's `quantity`, and the
+  row counts of `orders`, `transactions` and `transaction_entries` are equal before and after. The AC-12 user is funded
+  (`"100.00"`) and the good is in stock, so only the invalid input can be the reason for the rejection.
+- **AC-5, second part:** uses a new good with the same `price` `"1.00"` / `quantity` `2` instead of reusing the first
+  test's good; the first scenario must leave that good unchanged anyway.
+- **AC-9 / AC-10:** the non-`201` responses must be `409` problem details; the title is not asserted, because the AC
+  allows any `409` (`Insufficient funds`, `Insufficient stock` or `Concurrent modification`). AC-8 asserts the title
+  `Request in progress` for the non-`201` responses, as the AC states.
+- **Unknown IDs** (AC-11, AC-13, AC-14) are `MAX(id) + 1000000` of the table, asserted not to exist; this fits any
+  integer type the implementer chooses for IDs.
+- **AC-15:** each statement runs in a `TransactionTemplate` transaction that is always rolled back, so a missing
+  constraint cannot pollute the shared database (and the ledger checks of other tests). A "constraint violation" means a
+  `java.sql.SQLException` in the cause chain with primary result code `SQLITE_CONSTRAINT` (19) or a
+  "constraint failed" message. The `INSERT` of the second `ORDER_PAYMENT` is otherwise valid (`amount > 0`, valid type),
+  so only `ux_transactions_order_type` can reject it. The negative-balance `CHECK` already exists since STORY-001; that
+  test targets the account of a user who placed an order (the AC's "Given an order"), which is why it is red now. Its
+  detection logic was verified with a throwaway probe test (deleted) against the existing `CHECK`: the violation is
+  recognised, a rolled-back successful statement leaves no trace, and "no such column" is not mistaken for a constraint.
+- **AC-16** places its own orders first (it does not depend on other tests running before it), then checks the whole
+  database: every transaction has exactly 2 entries summing to `0`, every account `balance = COALESCE(SUM(entries), 0)`,
+  no `USER` account with `balance < 0`, no good with `quantity < 0`.
+- **AC-2:** entries are expected in STORY-004 order (`amount` ascending): user account `"-45.00"`, then `REVENUE`
+  `"45.00"`. `orderId` must be present and JSON `null` for a deposit transaction.
+- **AC-14:** asserts that `content` is exactly A's two order IDs in ascending order (and each has `userId` = A),
+  `totalElements` `2`; with `size=1`, one item and `totalPages` `2`; an unknown `userId` gives `200`, empty `content`,
+  `totalElements` `0`.
+- Existing STORY-004 test `AC-4` compares `GET /api/v1/transactions/{id}` with the deposit `POST` response; both will
+  gain `orderId: null`, so it stays valid.
+
 ## Test review
 
 <!--
@@ -308,6 +385,55 @@ no over-specification: yes · red for the expected reason (own run): yes.
 | `src/test/kotlin/com/example/kotlintest/acceptance/StoryNNNSomethingAcceptanceTest.kt` | <sha256> |
 -->
 
+### Test review 1 — 2026-11-09 — Verdict: Approved
+
+**AC coverage:**
+
+| AC    | Covered | Assertion matches Given/When/Then | Note |
+|-------|---------|-----------------------------------|------|
+| AC-1  | yes     | yes | `201`, `Location` path suffix, integer `id`, `userId`/`goodId`/`quantity`, `unitPrice`/`totalAmount` as JSON strings, `status` `PAID`, integer `paymentTransactionId`, `refundTransactionId` present and `null`, timestamps ending in `Z`; account API `"55.00"` + row `5500`; stock `7`; `REVENUE` delta exactly `4500`; `orders` row (`PAID`, `1500`, `4500`); exactly one `transactions` row for the order (`ORDER_PAYMENT`, `4500`, id = `paymentTransactionId`) with entries user `-4500` / `REVENUE` `4500`. |
+| AC-2  | yes     | yes | `type`, `amount` string, integer `orderId` = order ID, entries in the STORY-004 documented order (negative first) with account IDs; deposit transaction has `orderId` present and `null`. |
+| AC-3  | yes     | yes | `PATCH` price to `"20.00"` asserted `200`, then `GET` shows `unitPrice` `"15.00"` and the original `totalAmount`. |
+| AC-4  | yes     | yes | `409` problem `Insufficient funds`; balance `1000`, stock `5`, row counts of `orders`, `transactions` (and `transaction_entries`) unchanged. |
+| AC-5  | yes     | yes | Two tests: funded user → `Insufficient stock`, nothing changed; user without deposit → `Insufficient stock` (uses a new good with the same price/stock instead of the same good; equivalent). |
+| AC-6  | yes     | yes | `totalAmount` `"30.00"`, account API `"0.00"` + row `0`, stock `0`. |
+| AC-7  | yes     | yes | Replay `201` with `Idempotent-Replayed: true`, same `Location`, JSON-equal body; balance `5500`, stock `7`, one order for the user, one `ORDER_PAYMENT` entry on the user account. |
+| AC-8  | yes     | yes | 10 concurrent same-key requests; non-`201` must be `409` `Request in progress`; ≥ 1 `201`, all `201` bodies JSON-equal; one order, balance `9000`, stock `9`. |
+| AC-9  | yes     | yes | 5 concurrent different keys; exactly one `201`, all others `409` problem; balance `300`, stock `9`, one order. |
+| AC-10 | yes     | yes | Two users race for the last item; exactly one `201`, other `409`; stock `0`; balances `{900, 1000}`. |
+| AC-11 | yes     | yes | Unknown user and unknown good (IDs asserted absent) → `404` problem; row counts unchanged, stock / balance unchanged. |
+| AC-12 | yes     | yes | (a)–(g) one test each with a funded user and in-stock good, so only the bad input can cause the rejection: `400` `application/problem+json`, nothing changes; missing key → `400` `Idempotency-Key header required`, nothing changes. |
+| AC-13 | yes     | yes | `GET` body JSON-equal to the creation body; unknown ID → `404` problem. |
+| AC-14 | yes     | yes | A's two order IDs exactly, ascending, each with `userId` = A, `totalElements` `2`; `size=1` → 1 item, `totalPages` `2`; unknown `userId` → `200`, empty `content`, `totalElements` `0`. |
+| AC-15 | yes     | yes | Second `ORDER_PAYMENT` insert for an existing order and `balance = -1` update both run in an always-rolled-back transaction and must fail with `SQLITE_CONSTRAINT`. Verified against `V3__create_ledger.sql`: the insert is otherwise valid (allowed type, `amount > 0`, `created_at` set, `order_id` references an existing order). |
+| AC-16 | yes     | yes | Places its own orders, then checks the whole DB: every transaction has exactly 2 entries summing to `0`, every account `balance = COALESCE(SUM(entries), 0)`, no negative `USER` balance, no negative stock. Order-independent. |
+| AC-17 | yes     | yes | `"0.57"` × 3 → `"1.71"`, balance `"8.29"` / `829`, rows `57` / `171` with `typeof` `'integer'`; largest price `"9999999.99"` with a `"10000000.00"` deposit (the STORY-004 maximum) → total `"9999999.99"`, balance `"0.01"` / `1`. |
+
+**Quality checks:** black-box only (no production imports; only `RestTestClient`, `JdbcTemplate` and a
+`TransactionTemplate` for the rolled-back constraint probes): yes · deterministic (no sleeps or clock dependence;
+concurrency via a start latch, outcomes fixed by balance/stock): yes · isolated test data (own users, goods, keys;
+`REVENUE` checked as a delta; nothing deleted): yes · AC-prefixed English names: yes · no `@Disabled`, tags or
+assumptions: yes · no changes to `build.gradle.kts` or `src/test/resources` (`git status`: only the story and the new
+test file): yes · no over-specification: yes · red for the expected reason (own run): yes.
+
+**Red run (own):** `python3 scripts/app.py test`: compiles; 206 tests, 28 failures, 0 errors, 0 skipped. All 28
+failures are in `Story005PlaceOrderAcceptanceTest`: `POST /api/v1/orders` → `404` "No static resource api/v1/orders"
+(AC-1, 2, 3, 6, 7, 8, 9, 10, 13, 14, 15, 16, 17) or `SELECT count(*) FROM orders` → `SQLITE_ERROR` no such table (AC-4,
+5, 11, 12). All 178 other tests pass.
+
+**Findings:**
+
+| ID  | Severity | Location | Description |
+|-----|----------|----------|-------------|
+| T-1 | minor    | `Story005PlaceOrderAcceptanceTest.kt:702` | `assertConstraintViolation` accepts any `SQLITE_CONSTRAINT`, not specifically the `UNIQUE` violation of `ux_transactions_order_type`. Today the probe insert is otherwise valid, so only the unique index can reject it, but an implementation that added extra constraints to `transactions` could make the test pass without the index. The reviewer should confirm the migration creates `ux_transactions_order_type` as specified. |
+| T-2 | minor    | `Story005PlaceOrderAcceptanceTest.kt:71-73` | `userId`, `goodId` and `quantity` in the order response are read with `asLong()`/`asInt()`, which would also accept numeric strings. The *Technical details* show them as JSON numbers; `id` and `paymentTransactionId` are checked as integers. Low risk. |
+
+**Locked tests:**
+
+| File | SHA-256 |
+|------|---------|
+| `src/test/kotlin/com/example/kotlintest/acceptance/Story005PlaceOrderAcceptanceTest.kt` | b9a9966de9e59acde977bf6c4b2a59c2d30d4c03bd93aa198f51f20036d02a4c |
+
 ## Execution evidence
 
 <!--
@@ -336,6 +462,99 @@ Implementer only. Append-only: add one "### Attempt N — YYYY-MM-DD" subsection
 
 **Deviations and notes:** none / description. Test defects (if any): test, reason, conflicting requirement.
 -->
+
+### Attempt 1 — 2026-11-09
+
+**Summary:** Implemented placing and paying an order. `OrderService.place` runs inside the idempotent executor's
+transaction (which is a write transaction from its first statement): it loads the user's account (`404`), the good
+(`404`), checks the stock (`409 Insufficient stock`) and then the balance (`409 Insufficient funds`), takes the stock
+out of the good (`GoodService.takeStock`, written with the good's `@Version`), stores the `PAID` order with the good's
+current price, and posts an `ORDER_PAYMENT` transaction from the user's account to `REVENUE` through
+`LedgerService.post` (both accounts written with their `@Version`) with the new `order_id`. The total is computed with
+`Math.multiplyExact` on minor units. `GET /api/v1/orders/{id}` and `GET /api/v1/orders[?userId=]` (sort `id`,
+`createdAt`, `totalAmount`) read orders; `paymentTransactionId` / `refundTransactionId` are looked up in `transactions`
+by `order_id` and `type`. The transaction response gets `orderId`. Lost races surface as `409 Concurrent modification`
+through the existing handler.
+
+**Changed files:**
+- `src/main/resources/db/migration/V4__create_orders.sql`: new; `orders` table, `transactions.order_id`, unique index `ux_transactions_order_type`
+- `src/main/kotlin/com/example/kotlintest/order/Order.kt`: new; `Order` entity, `OrderStatus`, `OrderNotFoundException`, `InsufficientStockException`, `InsufficientFundsException`
+- `src/main/kotlin/com/example/kotlintest/order/OrderRepository.kt`: new; paging repository with `findByUserId`
+- `src/main/kotlin/com/example/kotlintest/order/OrderService.kt`: new; `place`, `get`, `list`, payment / refund transaction ID lookup
+- `src/main/kotlin/com/example/kotlintest/order/OrderController.kt`: new; `POST` (idempotent), `GET` by ID, `GET` list
+- `src/main/kotlin/com/example/kotlintest/order/OrderDtos.kt`: new; `PlaceOrderRequest` (validation, integer-only `quantity`), `OrderResponse`
+- `src/main/kotlin/com/example/kotlintest/ledger/Transaction.kt`: `orderId` property
+- `src/main/kotlin/com/example/kotlintest/ledger/TransactionDtos.kt`: `orderId` in `TransactionResponse`
+- `src/main/kotlin/com/example/kotlintest/ledger/LedgerService.kt`: `post(..., orderId)` and `findTransactionId`
+- `src/main/kotlin/com/example/kotlintest/ledger/TransactionRepository.kt`: `findIdByOrderIdAndType` query
+- `src/main/kotlin/com/example/kotlintest/good/GoodService.kt`: `takeStock`
+- `src/test/kotlin/com/example/kotlintest/order/OrderServiceTest.kt`: new; unit tests of the order logic (not locked)
+- `src/test/kotlin/com/example/kotlintest/good/GoodServiceTest.kt`: two `takeStock` tests (not locked)
+- `AGENTS.md`: new fixed error titles (`Order not found`, `Insufficient stock`, `Insufficient funds`); ledger note on `order_id`
+
+**Migrations:** `V4__create_orders.sql`
+
+**Acceptance criteria evidence:**
+
+| AC    | Locked acceptance test (now passing)                                                                                   | Additional tests by the implementer |
+|-------|------------------------------------------------------------------------------------------------------------------------|-------------------------------------|
+| AC-1  | `Story005PlaceOrderAcceptanceTest` › `AC-1 places an order and returns 201 with Location, the order, and the ledger and stock changes` | `OrderServiceTest` › `place stores a paid order at the current price and pays it from the user account to REVENUE` |
+| AC-2  | `Story005PlaceOrderAcceptanceTest` › `AC-2 the payment transaction has orderId and the order entries, a deposit transaction has orderId null` | — |
+| AC-3  | `Story005PlaceOrderAcceptanceTest` › `AC-3 a later price change does not change the unit price and total of an existing order` | — |
+| AC-4  | `Story005PlaceOrderAcceptanceTest` › `AC-4 rejects an order the balance does not cover with 409 Insufficient funds and changes nothing` | `OrderServiceTest` › `place rejects an order the balance does not cover without writing` |
+| AC-5  | `Story005PlaceOrderAcceptanceTest` › `AC-5 rejects an order larger than the stock with 409 Insufficient stock and changes nothing`; `AC-5 returns Insufficient stock when both the stock and the balance are too low` | `OrderServiceTest` › `place rejects an order larger than the stock before checking the balance` |
+| AC-6  | `Story005PlaceOrderAcceptanceTest` › `AC-6 an order that uses the whole balance and the whole stock succeeds`           | `OrderServiceTest` › `place accepts an order that uses the whole stock and the whole balance` |
+| AC-7  | `Story005PlaceOrderAcceptanceTest` › `AC-7 a repeated order with the same key is replayed and pays once`                | — |
+| AC-8  | `Story005PlaceOrderAcceptanceTest` › `AC-8 concurrent identical orders with the same key pay once`                      | — |
+| AC-9  | `Story005PlaceOrderAcceptanceTest` › `AC-9 concurrent orders with different keys never overdraw the account`            | — |
+| AC-10 | `Story005PlaceOrderAcceptanceTest` › `AC-10 concurrent orders of two users never oversell the last item`                | — |
+| AC-11 | `Story005PlaceOrderAcceptanceTest` › `AC-11 an order for an unknown user returns 404 and changes nothing`; `AC-11 an order for an unknown good returns 404 and changes nothing` | `OrderServiceTest` › `place reports an unknown user before an unknown good`, `place reports an unknown good` |
+| AC-12 | `Story005PlaceOrderAcceptanceTest` › `AC-12 (a)` … `AC-12 (g)`; `AC-12 rejects a valid order without Idempotency-Key with 400 and changes nothing` | — |
+| AC-13 | `Story005PlaceOrderAcceptanceTest` › `AC-13 reads an order by id and returns 404 problem detail for an unknown id`      | — |
+| AC-14 | `Story005PlaceOrderAcceptanceTest` › `AC-14 lists the orders of one user with pagination`                               | — |
+| AC-15 | `Story005PlaceOrderAcceptanceTest` › `AC-15 the database rejects a second ORDER_PAYMENT transaction for the same order`; `AC-15 the database rejects a negative user account balance` | — |
+| AC-16 | `Story005PlaceOrderAcceptanceTest` › `AC-16 every transaction is balanced, every balance equals its entries, nothing is negative` | — |
+| AC-17 | `Story005PlaceOrderAcceptanceTest` › `AC-17 computes the total exactly in integer minor units`; `AC-17 handles the largest price exactly` | — |
+
+**Build:** `python3 scripts/app.py build` (`gradlew.bat build`):
+
+```
+> Task :test
+> Task :check
+> Task :build
+
+BUILD SUCCESSFUL in 16s
+
+=== Test summary ===
+  com.example.kotlintest.acceptance.Story005PlaceOrderAcceptanceTest: 28 tests, 0 failures, 0 errors, 0 skipped
+  com.example.kotlintest.order.OrderServiceTest: 6 tests, 0 failures, 0 errors, 0 skipped
+  com.example.kotlintest.good.GoodServiceTest: 7 tests, 0 failures, 0 errors, 0 skipped
+  ...
+  TOTAL: 214 tests, 0 failures, 0 errors, 0 skipped
+
+build: SUCCESSFUL
+```
+
+The STORY-005 acceptance tests (concurrency ones included) were also run three more times with `--rerun`: 28 tests, 0 failures each time.
+
+**Locked tests verify:** `python3 scripts/locked-tests.py verify STORY-005`:
+
+```
+OK       src/test/kotlin/com/example/kotlintest/acceptance/Story005PlaceOrderAcceptanceTest.kt
+STORY-005-place-and-pay-an-order: 1/1 locked tests unchanged
+```
+
+**Deviations and notes:**
+- No test defects.
+- The only Kotlin compiler warnings are `Unnecessary safe call on a non-null receiver of type 'ByteArray'` in locked acceptance
+  tests (`Story005...AcceptanceTest.kt:812`, and the same pattern in the locked tests of STORY-003, 004 and 009). They are
+  not in production or implementer code, and locked files can't be changed.
+- Test review T-1: the migration creates `ux_transactions_order_type` exactly as specified (`UNIQUE INDEX ... (order_id, type) WHERE order_id IS NOT NULL`).
+- `userId` / `goodId` are plain `Long?` fields (positive, required); only `quantity` uses the integer-only deserializer
+  (test review T-2 noted this as low risk).
+- `GoodService.takeStock` also sets the good's `updatedAt`, because the stock changed.
+- `paymentTransactionId` / `refundTransactionId` cost one small query each per order; a page is capped at 100 orders.
+- `AGENTS.md` was updated with the new fixed error titles and the ledger `order_id` note (definition of done, step 6).
 
 ## Review
 
@@ -369,3 +588,72 @@ not skipped or weakened (no `@Disabled`, Gradle test filters, or test-resource c
 
 Severity: `blocking` (must be fixed before approval) or `minor` (should be fixed, does not block approval).
 -->
+
+### Review 1 — 2026-11-09 — Verdict: Approved
+
+**Requirements:**
+
+| Req | Met | Note |
+|-----|-----|------|
+| R-1 | yes | `PlaceOrderRequest` (`quantity` 1..10000, integer-only; `userId`/`goodId` required positive); `POST /api/v1/orders` in `OrderController`. |
+| R-2 | yes | `OrderService.place` runs in the idempotent executor's single transaction: `GoodService.takeStock`, `orders.save` (`PAID`), `LedgerService.post(ORDER_PAYMENT, user → REVENUE, orderId)`. Any exception rolls back everything. |
+| R-3 | yes | `unitPrice = good.price`, `totalAmount = Math.multiplyExact(price, quantity)` in minor units; DTO formats via `Money.format`; DB columns are `INTEGER` with `CHECK (total_amount = quantity * unit_price)`. |
+| R-4 | yes | Stock is checked before balance (`InsufficientStockException` before `InsufficientFundsException`); both are `409` `ApiException`s with the fixed titles. Non-negative balance (existing `CHECK`) and stock (`takeStock` precondition + `@Version`). |
+| R-5 | yes | The endpoint is wrapped in `IdempotentExecutor.execute`; replay, reuse and in-progress rules are inherited. |
+| R-6 | yes | Good and both accounts are read and written with `@Version`, inside a transaction that is a write transaction from its first statement (idempotency record is inserted first). Losers get `409`. Confirmed by AC-8, AC-9, AC-10 passing. |
+| R-7 | yes | `ux_transactions_order_type` is `UNIQUE (order_id, type) WHERE order_id IS NOT NULL` in `V4__create_orders.sql` (confirms test review T-1). |
+| R-8 | yes | `UserNotFoundException` (user checked first) and `GoodNotFoundException` → `404`; bean validation / malformed JSON → `400`; nothing is written before the checks. |
+| R-9 | yes | `GET /api/v1/orders/{id}` (`OrderNotFoundException` → `404`) and `GET /api/v1/orders[?userId=]` with `withValidatedSort(id, createdAt, totalAmount)` and `PageResponse`. Also exercised by hand in sandbox (`sort=totalAmount,desc`, `sort=createdAt,desc&size=1`, `sort=bogus` → `400 Invalid sort property`). |
+| R-10 | yes | `Transaction.orderId` and `TransactionResponse.orderId` (`null` for deposits); the sandbox `GET /api/v1/transactions/2` returned `orderId: 1`. |
+
+**Acceptance criteria:**
+
+| AC    | Result | How checked |
+|-------|--------|-------------|
+| AC-1  | pass | Locked test passes (own build run). Sandbox: `201`, `Location: /api/v1/orders/1`, body fields as specified, balance `100.00 → 25.00` after two orders (30 + 45). |
+| AC-2  | pass | Locked test passes; sandbox `GET /api/v1/transactions/2` → `ORDER_PAYMENT`, `30.00`, `orderId: 1`, entries `-30.00` / `30.00`. |
+| AC-3  | pass | Locked test passes; the order stores `unit_price`, so a later price change cannot affect it (no join to `goods.price`). |
+| AC-4  | pass | Locked test passes; sandbox `409 Insufficient funds` (nothing written). |
+| AC-5  | pass | Both locked tests pass; code checks stock before balance. |
+| AC-6  | pass | Locked test passes. |
+| AC-7  | pass | Locked test passes; replay is handled by `IdempotencyInterceptor`. |
+| AC-8  | pass | Locked test passes (28/28 in the full build). |
+| AC-9  | pass | Locked test passes. |
+| AC-10 | pass | Locked test passes. |
+| AC-11 | pass | Both locked tests pass; `404` is raised before any write. |
+| AC-12 | pass | All 8 locked tests pass; sandbox `"3"` and `3.5` for `quantity` → `400`. |
+| AC-13 | pass | Locked test passes. |
+| AC-14 | pass | Locked test passes; sandbox listing/paging/sort checked by hand. |
+| AC-15 | pass | Both locked tests pass; the migration creates the unique index and the account `CHECK` already exists. |
+| AC-16 | pass | Locked test passes. |
+| AC-17 | pass | Both locked tests pass; arithmetic is `Math.multiplyExact` on `Long`, no floating point. |
+
+**Build:** `python3 scripts/app.py build` (wraps `gradlew build`): BUILD SUCCESSFUL, 214 tests, 0 failures, 0 errors, 0
+skipped. `Story005PlaceOrderAcceptanceTest`: 28 tests, 0 failures, 0 skipped; the acceptance tests of STORY-001, 002, 003,
+004 and 009 also pass in full (26 / 14 / 38 / 23 / 5).
+
+**Locked tests verify:** `python3 scripts/locked-tests.py verify STORY-005`:
+
+```
+OK       src/test/kotlin/com/example/kotlintest/acceptance/Story005PlaceOrderAcceptanceTest.kt
+STORY-005-place-and-pay-an-order: 1/1 locked tests unchanged
+```
+
+The locked tests of STORY-001, 002, 003, 004 and 009 also verify as `OK`. No `@Disabled`, assumptions or `@Tag` anywhere in
+`src/test`; `build.gradle.kts` and `src/test/resources` are unchanged since the initial commit (not in `git status`);
+the only modified existing test file is the non-locked `GoodServiceTest.kt` (two `takeStock` tests added).
+
+**Conventions and scope:** Flyway migration `V4` is new and no applied migration was edited; the table is `STRICT`, snake_case,
+with foreign keys. Money is `Long` minor units in code/DB and strings in JSON; no `!!`; blocking code only; DTOs are
+separate from the entity; errors are `ApiException`s rendered by the single advice; `AGENTS.md` was updated with the new
+fixed titles and the ledger note (definition of done, step 6). All text is in English. No changes outside the requirements
+and nothing from *Out of scope* (no cancellation or refund logic; `refundTransactionId` is just a lookup that returns `null`).
+The evidence in *Attempt 1* matches what I observed (files, test counts, verify output). The `Unnecessary safe call`
+compiler warnings are in locked test code, as the implementer stated.
+
+**Findings:**
+
+| ID  | Severity | Location | Description |
+|-----|----------|----------|-------------|
+| F-1 | minor | `ledger/TransactionDtos.kt:8` | The edited KDoc line is far over the usual 120-character line length. Wrap it. |
+| F-2 | minor | `order/OrderController.kt:48-51`, `order/OrderService.kt:82-87` | `toResponse` runs two extra queries per order, so a page of 100 orders costs 200 additional queries (N+1). Acceptable for this story (the implementer noted it) but worth replacing by one batched lookup by `order_id` if lists grow. |

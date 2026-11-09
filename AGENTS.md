@@ -258,6 +258,9 @@ scripts/app.py                    # build, test, start/stop the app in work or s
 | `404`  | `User not found`                  | unknown user ID                        |
 | `404`  | `Good not found`                  | unknown good ID                        |
 | `404`  | `Transaction not found`           | unknown ledger transaction ID          |
+| `404`  | `Order not found`                 | unknown order ID                       |
+| `409`  | `Insufficient stock`              | an order asks for more than the stock  |
+| `409`  | `Insufficient funds`              | an order costs more than the balance   |
 | `409`  | `Email already in use`            | another user has this email (any case) |
 | `409`  | `Concurrent modification`         | an update lost an optimistic-locking (`@Version`) race, or a SQLite lock conflict (`SQLITE_BUSY` / `SQLITE_LOCKED`) rolled the transaction back |
 | `409`  | `Request in progress`             | same key is being processed            |
@@ -283,7 +286,8 @@ scripts/app.py                    # build, test, start/stop the app in work or s
   see `common/SqliteErrors.kt`) into `409 Concurrent modification`, never `500`.
 - **Money ledger:** `ledger/LedgerService.post` is the only code that changes `accounts.balance`. It writes both
   accounts (with `@Version`) and a balanced transaction (`transactions` + two `transaction_entries`) in the caller's
-  transaction. Tests must not change balances with SQL, or the ledger invariant checks fail.
+  transaction. Tests must not change balances with SQL, or the ledger invariant checks fail. A transaction that pays or
+  refunds an order carries its `order_id`; a unique index allows one transaction per order and type.
 - **Dialect:** Spring Data JDBC has no built-in SQLite dialect. `config/SqliteDialect.kt` provides one: ANSI-based, with
   `LIMIT/OFFSET` paging, no-op locks, and no array support. It replaces Boot's auto-detected `jdbcDialect` bean. Extend it if you hit SQL
   that SQLite rejects; don't switch to another dialect.
