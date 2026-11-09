@@ -1,10 +1,12 @@
 package com.example.kotlintest.common
 
 import org.slf4j.LoggerFactory
+import org.springframework.dao.DataAccessException
 import org.springframework.dao.OptimisticLockingFailureException
 import org.springframework.http.HttpStatus
 import org.springframework.http.ProblemDetail
 import org.springframework.http.ResponseEntity
+import org.springframework.transaction.TransactionException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler
@@ -32,10 +34,18 @@ class ApiExceptionHandler : ResponseEntityExceptionHandler() {
     @ExceptionHandler(OptimisticLockingFailureException::class)
     fun handleOptimisticLocking(ex: OptimisticLockingFailureException): ResponseEntity<ProblemDetail> {
         log.debug("Optimistic locking failure", ex)
-        val problem = ProblemDetail.forStatus(HttpStatus.CONFLICT)
-        problem.title = "Concurrent modification"
-        problem.detail = "The resource was modified concurrently. Reload it and try again."
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(problem)
+        return concurrentModification()
+    }
+
+    /**
+     * `409` if a concurrent transaction held a conflicting SQLite lock (`SQLITE_BUSY` / `SQLITE_LOCKED`): the
+     * transaction was rolled back without effect and the client can retry. Any other database error is a `500`.
+     */
+    @ExceptionHandler(DataAccessException::class, TransactionException::class)
+    fun handleDatabaseError(ex: Exception): ResponseEntity<ProblemDetail> {
+        if (!ex.isSqliteLockConflict()) return handleUnexpected(ex)
+        log.debug("SQLite lock conflict", ex)
+        return concurrentModification()
     }
 
     /** Last resort: never leak messages, stack traces or SQL to the client. */
@@ -45,5 +55,12 @@ class ApiExceptionHandler : ResponseEntityExceptionHandler() {
         val problem = ProblemDetail.forStatus(HttpStatus.INTERNAL_SERVER_ERROR)
         problem.detail = "An unexpected error occurred."
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(problem)
+    }
+
+    private fun concurrentModification(): ResponseEntity<ProblemDetail> {
+        val problem = ProblemDetail.forStatus(HttpStatus.CONFLICT)
+        problem.title = "Concurrent modification"
+        problem.detail = "The resource was modified concurrently. Reload it and try again."
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(problem)
     }
 }

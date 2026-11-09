@@ -16,4 +16,10 @@ class AccountService(private val accounts: AccountRepository) {
     /** Every user has exactly one account, so a missing account means the user does not exist. */
     fun getByUserId(userId: Long): Account =
         accounts.findByUserId(userId) ?: throw UserNotFoundException(userId)
+
+    /** The system account of [kind]. The ledger migration creates exactly one `FUNDING` and one `REVENUE` account. */
+    fun getSystemAccount(kind: AccountKind): Account {
+        require(kind != AccountKind.USER) { "USER is not a system account kind" }
+        return accounts.findByKindAndUserIdIsNull(kind) ?: error("System account $kind is missing")
+    }
 }

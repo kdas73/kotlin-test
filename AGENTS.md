@@ -257,8 +257,9 @@ scripts/app.py                    # build, test, start/stop the app in work or s
 | `400`  | `Invalid sort property`           | `sort` names an unsupported property   |
 | `404`  | `User not found`                  | unknown user ID                        |
 | `404`  | `Good not found`                  | unknown good ID                        |
+| `404`  | `Transaction not found`           | unknown ledger transaction ID          |
 | `409`  | `Email already in use`            | another user has this email (any case) |
-| `409`  | `Concurrent modification`         | an update lost an optimistic-locking (`@Version`) race |
+| `409`  | `Concurrent modification`         | an update lost an optimistic-locking (`@Version`) race, or a SQLite lock conflict (`SQLITE_BUSY` / `SQLITE_LOCKED`) rolled the transaction back |
 | `409`  | `Request in progress`             | same key is being processed            |
 | `422`  | `Idempotency key reused`          | same key, different request            |
 
@@ -278,6 +279,11 @@ scripts/app.py                    # build, test, start/stop the app in work or s
 - `ALTER TABLE` is limited in SQLite (dropping or changing columns may need the create-copy-drop-rename pattern; see the SQLite docs).
 - **Concurrency:** the DB runs in WAL mode with `busy_timeout=5000`. There is no `SELECT ... FOR UPDATE`: a write
   transaction locks the whole database, so pessimistic locks render as nothing. Use `@Version` optimistic locking where needed.
+  `ApiExceptionHandler` turns lock conflicts (`SQLITE_BUSY`, and `SQLITE_LOCKED` from the shared-cache in-memory test DB;
+  see `common/SqliteErrors.kt`) into `409 Concurrent modification`, never `500`.
+- **Money ledger:** `ledger/LedgerService.post` is the only code that changes `accounts.balance`. It writes both
+  accounts (with `@Version`) and a balanced transaction (`transactions` + two `transaction_entries`) in the caller's
+  transaction. Tests must not change balances with SQL, or the ledger invariant checks fail.
 - **Dialect:** Spring Data JDBC has no built-in SQLite dialect. `config/SqliteDialect.kt` provides one: ANSI-based, with
   `LIMIT/OFFSET` paging, no-op locks, and no array support. It replaces Boot's auto-detected `jdbcDialect` bean. Extend it if you hit SQL
   that SQLite rejects; don't switch to another dialect.
