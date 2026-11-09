@@ -1,9 +1,9 @@
 ---
 id: STORY-001
 title: Register users with an account and idempotent POST
-status: Pending
+status: Completed
 created: 2026-11-08
-updated: 2026-11-08
+updated: 2026-11-09
 depends_on: []
 related: []
 ---
@@ -15,6 +15,12 @@ related: []
 | Date       | From | To      | By           | Note          |
 |------------|------|---------|--------------|---------------|
 | 2026-11-08 | —    | Pending | story-writer | Story created |
+| 2026-11-09 | Pending | Test Writing | test-writer | Writing acceptance tests |
+| 2026-11-09 | Test Writing | Test Review | test-writer | Test design 1: 26 acceptance tests, red run recorded |
+| 2026-11-09 | Test Review | Ready | test-reviewer | Tests locked |
+| 2026-11-09 | Ready | In Progress | implementer | Implementation started |
+| 2026-11-09 | In Progress | In Review | implementer | Attempt 1: build green, 26/26 locked tests pass, lock verified |
+| 2026-11-09 | In Review | Completed | reviewer | Review 1: Approved (minor findings F-1, F-2 for a follow-up story) |
 
 ## Context
 
@@ -316,6 +322,85 @@ src/test/kotlin/com/example/kotlintest/acceptance/Story<NNN><Name>AcceptanceTest
 **Notes:** test data setup, assumptions, anything the test reviewer should know.
 -->
 
+### Test design 1 — 2026-11-09
+
+**Files:**
+- `src/test/kotlin/com/example/kotlintest/acceptance/Story001RegisterUsersAcceptanceTest.kt`
+
+**AC coverage:**
+
+| AC    | Test (class › method) |
+|-------|-----------------------|
+| AC-1  | `Story001RegisterUsersAcceptanceTest` › `AC-1 registers a user and returns 201 with Location and body` |
+| AC-2  | `Story001RegisterUsersAcceptanceTest` › `AC-2 registration creates exactly one USER account with zero balance` |
+| AC-3  | `Story001RegisterUsersAcceptanceTest` › `AC-3 trims name and email and stores the email in lower case` |
+| AC-4  | `Story001RegisterUsersAcceptanceTest` › `AC-4 (a) rejects a request without name with 400 and no side effects` |
+| AC-4  | `Story001RegisterUsersAcceptanceTest` › `AC-4 (b) rejects a blank name with 400 and no side effects` |
+| AC-4  | `Story001RegisterUsersAcceptanceTest` › `AC-4 (c) rejects a name of 101 characters with 400 and no side effects` |
+| AC-4  | `Story001RegisterUsersAcceptanceTest` › `AC-4 (d) rejects a request without email with 400 and no side effects` |
+| AC-4  | `Story001RegisterUsersAcceptanceTest` › `AC-4 (e) rejects an invalid email with 400 and no side effects` |
+| AC-4  | `Story001RegisterUsersAcceptanceTest` › `AC-4 (f) rejects an email of 255 characters with 400 and no side effects` |
+| AC-4  | `Story001RegisterUsersAcceptanceTest` › `AC-4 (g) rejects malformed JSON with 400 and no side effects` |
+| AC-5  | `Story001RegisterUsersAcceptanceTest` › `AC-5 rejects an email that differs only in letter case with 409` |
+| AC-6  | `Story001RegisterUsersAcceptanceTest` › `AC-6 reads a user by id and returns 404 problem detail for an unknown id` |
+| AC-7  | `Story001RegisterUsersAcceptanceTest` › `AC-7 returns 404 problem detail for the account of an unknown user` |
+| AC-8  | `Story001RegisterUsersAcceptanceTest` › `AC-8 returns the requested page sorted by id ascending` |
+| AC-8  | `Story001RegisterUsersAcceptanceTest` › `AC-8 uses page size 20 by default` |
+| AC-8  | `Story001RegisterUsersAcceptanceTest` › `AC-8 caps the page size at 100` |
+| AC-8  | `Story001RegisterUsersAcceptanceTest` › `AC-8 rejects an unknown sort property with 400` |
+| AC-9  | `Story001RegisterUsersAcceptanceTest` › `AC-9 (a) rejects a POST without Idempotency-Key header with 400` |
+| AC-9  | `Story001RegisterUsersAcceptanceTest` › `AC-9 (b) rejects a POST with a blank Idempotency-Key header with 400` |
+| AC-10 | `Story001RegisterUsersAcceptanceTest` › `AC-10 (a) rejects an Idempotency-Key of 256 characters with 400` |
+| AC-10 | `Story001RegisterUsersAcceptanceTest` › `AC-10 (b) rejects an Idempotency-Key containing a space with 400` |
+| AC-11 | `Story001RegisterUsersAcceptanceTest` › `AC-11 replays the stored response for the same key and the same request` |
+| AC-12 | `Story001RegisterUsersAcceptanceTest` › `AC-12 rejects a reused key with a different request with 422` |
+| AC-13 | `Story001RegisterUsersAcceptanceTest` › `AC-13 a key whose request failed with 400 can be reused for a valid request` |
+| AC-13 | `Story001RegisterUsersAcceptanceTest` › `AC-13 a key whose request failed with 409 can be reused with a different email` |
+| AC-14 | `Story001RegisterUsersAcceptanceTest` › `AC-14 concurrent identical requests with the same key perform the operation at most once` |
+
+**Red run:** `.\gradlew.bat test`: compiles; 29 tests, 25 failed. Of the 26 new tests, 25 fail for the expected reason
+and 1 (AC-7) passes (see Notes). The pre-existing `KotlinTestApplicationTests`, `SqliteDialectTest` and
+`VirtualThreadsTest` pass.
+
+| Test | Failure reason (expected before implementation) |
+|------|--------------------------------------------------|
+| `AC-1 …`, `AC-2 …`, `AC-3 …`, `AC-5 …`, `AC-6 …`, `AC-11 …`, `AC-12 …`, `AC-13 … failed with 409 …`, `AC-8 returns the requested page …` | `expected: <201> but was: <404>`: `POST /api/v1/users` does not exist yet |
+| `AC-4 (a)` … `AC-4 (g)` | `no such table: users`: the V1 migration does not exist yet |
+| `AC-8 uses page size 20 by default`, `AC-8 caps the page size at 100` | `expected: <200> but was: <404>`: `GET /api/v1/users` does not exist yet |
+| `AC-8 rejects an unknown sort property with 400` | `Status expected:<400> but was:<404>`: endpoint does not exist yet |
+| `AC-9 (a)`, `AC-9 (b)`, `AC-10 (a)`, `AC-10 (b)` | status `404` (`No static resource api/v1/users.`) instead of `400`: endpoint and idempotency handling do not exist yet |
+| `AC-13 a key whose request failed with 400 …` | `expected: <400> but was: <404>`: endpoint does not exist yet |
+| `AC-14 …` | responses are `404` instead of `201` / `409 Request in progress`: endpoint does not exist yet |
+| `AC-7 …` | **passes** (see Notes) |
+
+**Notes:**
+- **Isolation:** there is no `@BeforeEach` cleanup. As the story's ACs require, the database is shared and every test
+  uses its own unique emails (`<prefix>-<UUID>@example.com`) and idempotency keys (UUIDs). All assertions on persisted
+  state are scoped to the test's own email, key or user ID. AC-4 compares total row counts before/after its own request,
+  and AC-8 compares against `SELECT count(*) FROM users` and the first two IDs, read in the same test. Tests run
+  sequentially, so these counts are stable within a test.
+- **AC-7 is green before implementation.** Spring Boot already answers any unmapped path with a `404`
+  `application/problem+json` (`spring.mvc.problemdetails.enabled: true`). AC-7 demands only `404` + problem+json and no
+  title, so asserting more would over-specify. The test is kept as a regression guard: the implementation must not
+  answer an unknown user's account with `200`, an empty body or a non-problem error. The 404 half of AC-6 is in the same
+  test as its creation half, so AC-6 is red.
+- **Unknown ID:** `Long.MAX_VALUE` is used as an ID that no test ever creates.
+- **Problem details:** every error assertion checks the status, `Content-Type` compatible with `application/problem+json`,
+  the body's `status`, and the exact `title` wherever the story's error table defines one. AC-8's unknown sort property
+  checks only `400`, as the AC states.
+- **AC-2:** `balance` must be a JSON *string* `"0.00"` (a JSON number fails the test). The account `id` is compared with
+  the `accounts.id` row of that user.
+- **AC-1:** `createdAt` must be a JSON string matching `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$` and parse with
+  `Instant.parse`; the exact time is not asserted. `Location` may be absolute or relative; only its path is checked.
+- **AC-4 (f):** the email is exactly 255 characters and otherwise matches the email pattern, so only the length rule
+  rejects it.
+- **AC-9 (b):** the blank key is sent as `"   "`. HTTP strips surrounding whitespace, so the server may see an empty
+  value; both count as blank.
+- **AC-14:** 10 virtual threads (`Thread.ofVirtual()`, no pool) are released together by a `CountDownLatch` and send the
+  identical request with the same key through `RestTestClient`. Every response must be `201` (all bodies JSON-equal) or a
+  `409` problem with title `Request in progress`; at least one is `201`; exactly one user and one account exist.
+- JSON bodies are compared as Jackson 3 trees (`tools.jackson.databind`), so field order does not matter.
+
 ## Test review
 
 <!--
@@ -345,6 +430,67 @@ no over-specification: yes · red for the expected reason (own run): yes.
 | `src/test/kotlin/com/example/kotlintest/acceptance/StoryNNNSomethingAcceptanceTest.kt` | <sha256> |
 -->
 
+### Test review 1 — 2026-11-09 — Verdict: Approved
+
+**AC coverage:**
+
+| AC    | Covered | Assertion matches Given/When/Then | Note |
+|-------|---------|-----------------------------------|------|
+| AC-1  | yes     | yes | `201`; integer `id`; `name`, `email`; `createdAt` is a JSON string, ISO-8601 UTC ending in `Z`, parsed with `Instant.parse`; `Location` path; exactly one `users` row with the email. |
+| AC-2  | yes     | yes | One `accounts` row for the user with `kind = 'USER'`, `balance = 0` and `typeof(balance) = 'integer'`; `GET .../account` returns `200` with `id` = that row's ID, `userId`, and `balance` as the JSON string `"0.00"`. |
+| AC-3  | yes     | yes | Trimmed `name`, trimmed and lower-cased `email`, checked in the response and in the `users` row. |
+| AC-4  | yes     | yes | Seven tests for (a)–(g). Each checks `400` + problem+json, unchanged `users`/`accounts` counts, and no `idempotency_keys` row for the key. The (f) email is exactly 255 chars and otherwise valid. |
+| AC-5  | yes     | yes | `409` problem with title `Email already in use`; still exactly one row with the email. |
+| AC-6  | yes     | yes | `GET` body is JSON-equal to the creation body; an unknown ID returns a `404` problem. |
+| AC-7  | yes     | yes | Green before implementation (see note 1). |
+| AC-8  | yes     | yes | Page 0 / size 2: `content` IDs equal the first two IDs by `ORDER BY id`; `page.size`, `number`, `totalElements` (= `count(*)`), `totalPages` (= ceil). Separate tests check default size `20`, the `100` cap, and that an unknown sort property returns `400` (see T-1). |
+| AC-9  | yes     | yes | (a) missing and (b) blank key: `400` problem with title `Idempotency-Key header required`; no user with the email. |
+| AC-10 | yes     | yes | (a) a 256-char key of visible ASCII and (b) a key containing a space: `400` problem with title `Invalid Idempotency-Key header`; no user with the email. |
+| AC-11 | yes     | yes | First response has no `Idempotent-Replayed` header. The replay is `201` with `Idempotent-Replayed: true`, the same `Location` and a JSON-equal body. Exactly one user, one account, and one `idempotency_keys` row with `POST`, `/api/v1/users` and `201`. |
+| AC-12 | yes     | yes | `422` problem with title `Idempotency key reused`; no user with email B. |
+| AC-13 | yes     | yes | 400-then-valid and 409-then-other-email: both return `201` without a replay header, and the user exists. |
+| AC-14 | yes     | yes | 10 virtual threads released by a latch with the same key. Each response is `201` (bodies JSON-equal) or a `409` problem titled `Request in progress`, and at least one is `201`. Exactly one user and one account. A `500` fails the test. |
+
+**Quality checks:** black-box only (no production imports; only `RestTestClient` + `JdbcTemplate`): yes ·
+deterministic (no sleeps or clock assertions; AC-14 accepts every outcome R-11 allows and only bounds `join` at 60 s): yes ·
+isolated test data (UUID-based emails and keys; assertions scoped to the test's own data; AC-4/AC-8 global counts are
+read within the test, and test classes run sequentially): yes · AC-prefixed names, English: yes · no `@Disabled` or tags,
+and no changes to `build.gradle.kts` or `src/test/resources` (checked with `git status`): yes · no over-specification
+(every assertion is backed by an AC or by *Technical details*): yes · red for the expected reason (own run): yes.
+
+**Red run (own run, `./gradlew test`, 2026-11-09):** compiles; 29 tests, 25 failed, 0 skipped.
+- `KotlinTestApplicationTests`, `SqliteDialectTest` and `VirtualThreadsTest` pass.
+- Expected failures, matching *Test design 1*:
+  - AC-4 (a)–(g): `no such table: users`.
+  - AC-1/2/3/5/6/8 (page)/11/12/13 (409 case): `expected: <201> but was: <404>`.
+  - AC-8 (default size, cap) and AC-13 (400 case): `404` instead of `200` / `400`.
+  - AC-8 unknown sort: `404` instead of `400`.
+  - AC-9, AC-10, AC-14: `404 No static resource api/v1/users.` instead of `400` / `201` / `409`.
+- AC-7 passes (see note 1).
+
+**Notes:**
+1. AC-7 is green before implementation because Boot already answers unmapped paths with a `404` problem+json, and the
+   AC demands nothing more. Making it red would require over-specification (for example a title the story does not
+   define). Accepted as a regression guard.
+2. For the implementer: the `test` profile uses a shared-cache in-memory SQLite DB without `busy_timeout`. In
+   shared-cache mode, lock conflicts between connections fail immediately with `SQLITE_LOCKED`, and the busy timeout
+   does not apply to them. AC-14 can therefore hit lock errors under concurrency. Per the story's *Constraints and
+   notes* and R-11, these must end as a replay or `409 Request in progress`, never `500`. This is an implementation
+   concern, not a test defect.
+
+**Findings:**
+
+| ID  | Severity | Location | Description |
+|-----|----------|----------|-------------|
+| T-1 | minor    | `Story001RegisterUsersAcceptanceTest.kt:257` | `AC-8 rejects an unknown sort property with 400` checks only the status. AC-8 asks for no more, but *Technical details → Errors* says every error response is a `ProblemDetail`, so a `400` with an empty or HTML body would pass. Not blocking, because the AC text is met. The implementer should still return a problem+json here. |
+| T-2 | minor    | `Story001RegisterUsersAcceptanceTest.kt:224` | The AC-8 page test checks `content` items only by `id`, not by their full user shape (`name`, `email`, `createdAt`). The shape is covered for single users by AC-1/AC-6. Not blocking. |
+
+**Locked tests:**
+
+| File | SHA-256 |
+|------|---------|
+| `src/test/kotlin/com/example/kotlintest/acceptance/Story001RegisterUsersAcceptanceTest.kt` | 74793e5f2b0f3b23c556c63966af9695027ef598ba4974f9f1db3b8fd32b112a |
+
 ## Execution evidence
 
 <!--
@@ -373,6 +519,114 @@ Implementer only. Append-only: add one "### Attempt N — YYYY-MM-DD" subsection
 
 **Deviations and notes:** none / description. Test defects (if any): test, reason, conflicting requirement.
 -->
+
+### Attempt 1 — 2026-11-09
+
+**Summary:** Implemented user registration with an automatically opened `USER` account. Added reading a user, the
+user list (paged and sorted) and reading a user's account. Added the reusable building blocks for later stories:
+- the `Idempotency-Key` mechanism for every `POST` under `/api/v1`: a body-caching filter, an interceptor that runs
+  before validation (header checks, a JVM-wide in-flight key lock, `422` for a reused key, replay), and
+  `IdempotentExecutor`, which stores the `2xx` response in the same transaction as the business change;
+- the money format (`Money`);
+- the page response shape (`PageResponse`, `withValidatedSort`);
+- `Instant` <-> ISO-8601 UTC `TEXT` converters;
+- the single `ProblemDetail` advice (`ApiExceptionHandler` + the `ApiException` base class).
+
+**Changed files:**
+- `src/main/resources/db/migration/V1__create_users_accounts_idempotency.sql`: new. Tables `users`, `accounts`,
+  `idempotency_keys` and the index `ux_accounts_system_kind`, exactly as in *Technical details*.
+- `src/main/resources/application.yaml`: `spring.data.web.pageable.default-page-size: 20`, `max-page-size: 100`.
+- `src/main/kotlin/com/example/kotlintest/config/SqliteDialect.kt`: added the `jdbcCustomConversions` bean (SQLite
+  store conversions + `Instant` <-> `TEXT`). Boot's own bean is `@ConditionalOnMissingBean`.
+- `config/InstantTextConverters.kt`: new. Writes ISO-8601 UTC with exactly 3 fraction digits (sortable text); reads
+  with `Instant.parse`.
+- `config/ClockConfig.kt`: new. `Clock.systemUTC()` bean.
+- `common/ApiException.kt`, `common/ApiExceptionHandler.kt`: new. The domain-error base class, plus the single
+  `@RestControllerAdvice` (extends `ResponseEntityExceptionHandler`, with a catch-all `500` that leaks no details).
+- `common/PageResponse.kt`: new. `PageResponse<T>` (`content` + `page{size, number, totalElements, totalPages}`) and
+  `Pageable.withValidatedSort` (whitelist → `400`, default `id ASC`, `id` tie-breaker).
+- `common/SqliteErrors.kt`: new. `Throwable.isUniqueViolation("table.column")` (SQLite code 19 + message).
+- `common/money/Money.kt`: new. `parse`/`format` between money strings and `Long` minor units, using string and
+  integer arithmetic with `Math.addExact`/`multiplyExact`.
+- `common/idempotency/`: new. `IdempotencyKey` (header rules, SHA-256 body hash), `IdempotencyContext`,
+  `IdempotencyRecord` + `IdempotencyRecordRepository`, `IdempotencyKeyLocks`, `CachedBodyFilter`,
+  `IdempotencyInterceptor` + `IdempotencyWebConfig`, `IdempotentExecutor`, `IdempotencyExceptions`.
+- `user/`: new. `User` (+ `UserNotFoundException`, `EmailAlreadyInUseException`), `UserRepository`, `UserService`,
+  `UserDtos` (the request is trimmed in a `@JsonCreator`, so validation sees the trimmed values), `UserController`.
+- `account/`: new. `Account` + `AccountKind`, `AccountRepository`, `AccountService`, `AccountDtos` (`balance` as a money
+  string), `AccountController` (`GET /api/v1/users/{userId}/account`).
+- `AGENTS.md`: new sections Pagination, Money format, Idempotency-Key, Errors (with the titles table); the timestamp
+  convention; updated project layout.
+- Tests (own, not locked): `common/money/MoneyTest.kt`, `common/idempotency/IdempotencyKeyTest.kt`,
+  `user/UserPersistenceTest.kt` (`@DataJdbcTest`), `user/UserApiTest.kt`.
+
+**Migrations:** `V1__create_users_accounts_idempotency.sql`.
+
+**Acceptance criteria evidence:**
+
+| AC    | Locked acceptance test (now passing) | Additional tests by the implementer |
+|-------|--------------------------------------|-------------------------------------|
+| AC-1  | `Story001RegisterUsersAcceptanceTest` › `AC-1 registers a user and returns 201 with Location and body` | `UserPersistenceTest` › `stores Instant as ISO-8601 UTC text with millisecond precision and reads it back` |
+| AC-2  | `Story001RegisterUsersAcceptanceTest` › `AC-2 registration creates exactly one USER account with zero balance` | `MoneyTest` (all 6) |
+| AC-3  | `Story001RegisterUsersAcceptanceTest` › `AC-3 trims name and email and stores the email in lower case` | — |
+| AC-4  | `Story001RegisterUsersAcceptanceTest` › `AC-4 (a)` … `AC-4 (g)` (7 tests) | — |
+| AC-5  | `Story001RegisterUsersAcceptanceTest` › `AC-5 rejects an email that differs only in letter case with 409` | `UserPersistenceTest` › `a duplicate email is recognized as a unique violation on users_email` |
+| AC-6  | `Story001RegisterUsersAcceptanceTest` › `AC-6 reads a user by id and returns 404 problem detail for an unknown id` | `UserApiTest` › `an unknown user returns a 404 problem detail titled User not found`, `a non-numeric user id returns a 400 problem detail` |
+| AC-7  | `Story001RegisterUsersAcceptanceTest` › `AC-7 returns 404 problem detail for the account of an unknown user` | — |
+| AC-8  | `Story001RegisterUsersAcceptanceTest` › `AC-8 returns the requested page sorted by id ascending`, `AC-8 uses page size 20 by default`, `AC-8 caps the page size at 100`, `AC-8 rejects an unknown sort property with 400` | `UserApiTest` › `unknown sort property returns a 400 problem detail` (test review T-1), `every allowed sort property is accepted` |
+| AC-9  | `Story001RegisterUsersAcceptanceTest` › `AC-9 (a) …`, `AC-9 (b) …` | `IdempotencyKeyTest` › `missing or blank header is required` |
+| AC-10 | `Story001RegisterUsersAcceptanceTest` › `AC-10 (a) …`, `AC-10 (b) …` | `IdempotencyKeyTest` › `accepts 1 to 255 visible ASCII characters`, `too long or non-visible characters are invalid` |
+| AC-11 | `Story001RegisterUsersAcceptanceTest` › `AC-11 replays the stored response for the same key and the same request` | `UserApiTest` › `a replayed response is served with application json` |
+| AC-12 | `Story001RegisterUsersAcceptanceTest` › `AC-12 rejects a reused key with a different request with 422` | `IdempotencyKeyTest` › `body hash is the SHA-256 hex digest of the raw bytes` |
+| AC-13 | `Story001RegisterUsersAcceptanceTest` › `AC-13 a key whose request failed with 400 can be reused for a valid request`, `AC-13 a key whose request failed with 409 can be reused with a different email` | — |
+| AC-14 | `Story001RegisterUsersAcceptanceTest` › `AC-14 concurrent identical requests with the same key perform the operation at most once` | 8 extra reruns of the whole locked class (`--rerun`): 8/8 green, no `Unhandled exception` in the logs |
+
+**Build:** `./gradlew clean build` (Git Bash, 2026-11-09): BUILD SUCCESSFUL, 48 tests, 0 failures, 0 errors,
+0 skipped. No compiler warnings.
+
+```
+> Task :test
+> Task :check
+> Task :build
+
+BUILD SUCCESSFUL in 15s
+9 actionable tasks: 9 executed
+name="com.example.kotlintest.KotlinTestApplicationTests" tests="1" skipped="0" failures="0" errors="0"
+name="com.example.kotlintest.acceptance.Story001RegisterUsersAcceptanceTest" tests="26" skipped="0" failures="0" errors="0"
+name="com.example.kotlintest.common.idempotency.IdempotencyKeyTest" tests="4" skipped="0" failures="0" errors="0"
+name="com.example.kotlintest.common.money.MoneyTest" tests="6" skipped="0" failures="0" errors="0"
+name="com.example.kotlintest.config.SqliteDialectTest" tests="1" skipped="0" failures="0" errors="0"
+name="com.example.kotlintest.config.VirtualThreadsTest" tests="1" skipped="0" failures="0" errors="0"
+name="com.example.kotlintest.user.UserApiTest" tests="6" skipped="0" failures="0" errors="0"
+name="com.example.kotlintest.user.UserPersistenceTest" tests="3" skipped="0" failures="0" errors="0"
+```
+
+**Locked tests verify:**
+
+```
+OK       src/test/kotlin/com/example/kotlintest/acceptance/Story001RegisterUsersAcceptanceTest.kt
+STORY-001-register-users-with-account-and-idempotent-post: 1/1 locked tests unchanged
+```
+
+**Deviations and notes:**
+- **Concurrent same-key requests (R-11 / processing order step 5):** the in-flight check runs **before** the record
+  lookup and needs no database access. When another request with the same key is still running, the answer is
+  `409 Request in progress` even in the rare case where a record for the key already exists. R-11 allows that outcome
+  ("replayed response or 409"). The reason: in the `test` profile, shared-cache SQLite fails table-lock conflicts at
+  once with `SQLITE_LOCKED`, so a concurrent read of `idempotency_keys` could make the running write fail (see test
+  review note 2). Without a concurrent same-key request, the order is exactly as specified: header → `422`/replay →
+  processing.
+- **Single-writer safety:** `IdempotentExecutor` inserts the `idempotency_keys` row first (placeholder status `0`)
+  and fills in the response before the commit. The transaction is therefore a write transaction from its first
+  statement, which avoids read-then-write `SQLITE_BUSY_SNAPSHOT` and lets `busy_timeout` apply. The placeholder is
+  never visible outside the transaction.
+- **Across JVMs:** the in-flight lock is per JVM. A `UNIQUE` violation on `idempotency_keys.idempotency_key` becomes
+  `409 Request in progress`. A `UNIQUE` violation on `users.email` (two registrations racing with different keys)
+  becomes `409 Email already in use`.
+- **Error titles not defined by the story:** `404` → `User not found`; an unknown sort property → `400`
+  `Invalid sort property` (also a `ProblemDetail`, which addresses test review T-1). Both are documented in AGENTS.md.
+- `Location` is a relative URL (`/api/v1/users/{id}`), which the story allows.
+- Test defects: none.
 
 ## Review
 
@@ -406,3 +660,81 @@ not skipped or weakened (no `@Disabled`, Gradle test filters, or test-resource c
 
 Severity: `blocking` (must be fixed before approval) or `minor` (should be fixed, does not block approval).
 -->
+
+### Review 1 — 2026-11-09 — Verdict: Approved
+
+**Requirements:**
+
+| Req  | Met | Note |
+|------|-----|------|
+| R-1  | yes | `UserController.create` → `UserService.register`. |
+| R-2  | yes | `CreateUserRequest.of` (`@JsonCreator`) trims before validation; `@NotBlank` + `@Size(max = 100)` on `name`; `@Size(max = 254)` + the story's `@Pattern` on `email`; `UserService.register` lower-cases with `Locale.ROOT`. See F-2. |
+| R-3  | yes | `existsByEmail` on the lower-cased email, plus the `UNIQUE` / `CHECK (email = lower(email))` columns; a racing `UNIQUE` violation maps to `409 Email already in use` (`SqliteErrors.isUniqueViolation`). Seen live: 10 concurrent registrations of one email with different keys gave 1 × `201` and 9 × `409 Email already in use`. |
+| R-4  | yes | `AccountService.openUserAccount` (kind `USER`, balance `0`) joins the transaction of `register`, which in turn joins the `IdempotentExecutor` transaction. |
+| R-5  | yes | `GET /api/v1/users/{id}`; unknown ID → `UserNotFoundException` (`404 User not found`). |
+| R-6  | yes | `GET /api/v1/users` with `Pageable`, `withValidatedSort` (whitelist `id`, `name`, `email`, `createdAt`), `PageResponse`; default `20` and cap `100` in `application.yaml`. |
+| R-7  | yes | `AccountController` `GET /api/v1/users/{userId}/account`; missing account → `404 User not found`. |
+| R-8  | yes | `IdempotencyInterceptor.preHandle` validates the header (`IdempotencyKey.validate`) before argument resolution and validation, so no side effects. |
+| R-9  | yes | Replay of stored status, `Location`, body (`application/json`) and `Idempotent-Replayed: true`. Seen live: the replay is byte-identical to the first response. |
+| R-10 | yes | `IdempotencyContext.matches` compares method, path (without query string) and body SHA-256 → `422 Idempotency key reused`. |
+| R-11 | yes | JVM-wide in-flight set (`IdempotencyKeyLocks`) → `409 Request in progress`; `UNIQUE` on `idempotency_key` as cross-JVM backstop. The in-flight check runs before the record lookup (documented deviation from the processing-order list; R-11 explicitly allows either outcome). Seen live on the file DB (WAL): 20 concurrent same-key requests created exactly one user. |
+| R-12 | yes | The record is written only inside `IdempotentExecutor`, which runs after validation; any exception rolls the whole transaction back; non-`2xx` results are refused by `check`. |
+| R-13 | yes | `IdempotentExecutor.execute`: reserve insert, business operation and record update in one `TransactionTemplate` transaction. |
+| R-14 | yes | `AccountResponse.balance` is `Money.format(balance)` (a JSON string); `accounts.balance` is `INTEGER`. |
+| R-15 | yes | `Money` uses string parsing and `Math.multiplyExact` / `addExact` on `Long`. `grep` for `Double`, `Float`, `REAL`, `NUMERIC` in `src/main` and `src/test` finds only a KDoc mention in `Money.kt`. `MoneyTest` covers `"0.29"`, `"0.57"`, `"1.15"`, `"10000000.00"` and back, and `Long` bounds. |
+
+**Acceptance criteria:**
+
+| AC    | Result | How checked |
+|-------|--------|-------------|
+| AC-1  | pass   | Locked test passed in my build; live `POST` returned `201`, relative `Location: /api/v1/users/1`, trimmed body with `createdAt` `...Z`. |
+| AC-2  | pass   | Locked test passed; live `GET /api/v1/users/1/account` → `{"id":1,"userId":1,"balance":"0.00"}`. |
+| AC-3  | pass   | Locked test passed; live `" Zed "` / `" Zed-…@Example.com"` stored and returned as `Zed` / `zed-…@example.com`. |
+| AC-4  | pass   | 7 locked tests passed; code check: validation fails before the executor, so no rows and no key record. Live: empty body and non-string email → `400` problem+json. |
+| AC-5  | pass   | Locked test passed; code check of `existsByEmail` + `UNIQUE` mapping. |
+| AC-6  | pass   | Locked test passed; `UserApiTest` additionally checks the `User not found` title and a `400` for a non-numeric ID. |
+| AC-7  | pass   | Locked test passed; live unknown account → `404` `application/problem+json`, title `User not found` (a real domain 404, not only Boot's unmapped-path 404). |
+| AC-8  | pass   | 4 locked tests passed; live `size=500` → `page.size` `100`; `sort=version,asc` → `400 Invalid sort property` problem (addresses test review T-1); multi-property sort → `200`. |
+| AC-9  | pass   | Locked tests passed; live missing key → `400 Idempotency-Key header required`. |
+| AC-10 | pass   | Locked tests passed; `IdempotencyKeyTest` covers 255/256 chars, space, tab, non-ASCII, DEL. |
+| AC-11 | pass   | Locked test passed; live replay identical, with `Idempotent-Replayed: true`; a query string does not change the fingerprint (replayed). |
+| AC-12 | pass   | Locked test passed; live different body with the same key → `422 Idempotency key reused`. |
+| AC-13 | pass   | Locked tests passed; code check: failures leave no record (rollback / validation before the executor). |
+| AC-14 | pass   | Locked test passed in my build, with 0 `Unhandled exception` log lines in the whole test run; live concurrency on the file DB as described under R-11. 30 concurrent registrations with different keys: 30 × `201`, no `500`. |
+
+**Build:** `./gradlew clean build` (Git Bash, 2026-11-09, run by the reviewer): BUILD SUCCESSFUL in 15s, no Kotlin
+compiler warnings. Test reports: 48 tests, 0 failures, 0 errors, 0 skipped.
+`Story001RegisterUsersAcceptanceTest` 26/26 (26 `<testcase>` entries, none skipped), `KotlinTestApplicationTests` 1,
+`SqliteDialectTest` 1, `VirtualThreadsTest` 1, `IdempotencyKeyTest` 4, `MoneyTest` 6, `UserApiTest` 6,
+`UserPersistenceTest` 3. The app was also started with `./gradlew bootRun` (port 18080, file DB in WAL mode): Flyway
+applied V1, the smoke and concurrency checks above passed, and the log had no `Unhandled exception`; the app was
+stopped afterwards. `/actuator/env` → `404` (only `health` and `info` exposed).
+
+**Locked tests verify:** `python scripts/locked-tests.py verify STORY-001`, exit code 0:
+
+```
+OK       src/test/kotlin/com/example/kotlintest/acceptance/Story001RegisterUsersAcceptanceTest.kt
+STORY-001-register-users-with-account-and-idempotent-post: 1/1 locked tests unchanged
+```
+
+No `@Disabled`, assumptions or tags anywhere in `src/test`; `build.gradle.kts` is unchanged (only `useJUnitPlatform()`,
+no filters); `src/test/resources` is unchanged (`git status` / `git diff`). No earlier story has locked tests.
+
+**Conventions:** V1 migration matches *Technical details* exactly (`STRICT`, `INTEGER PRIMARY KEY`, FK, `CHECK`s);
+timestamps are ISO-8601 UTC `TEXT` with 3 fraction digits, with a `@DataJdbcTest` round trip (`UserPersistenceTest`);
+`201` + `Location`, `ProblemDetail` for every error (single `@RestControllerAdvice` with a non-leaking `500`);
+DTOs separate from entities; constructor injection; no `!!`; plain blocking code (no reactive types or coroutines);
+English everywhere. `AGENTS.md` was updated with the idempotency, pagination, money, error-title and timestamp
+conventions, as the story requires.
+
+**Scope:** nothing from *Out of scope*. The extra error titles (`User not found`, `Invalid sort property`) fill gaps the
+story left open and are documented in `AGENTS.md`. *Changed files* in Attempt 1 matches `git status`.
+
+**Findings:**
+
+| ID  | Severity | Location | Description |
+|-----|----------|----------|-------------|
+| F-1 | minor    | `src/main/kotlin/com/example/kotlintest/common/idempotency/CachedBodyFilter.kt:28` | Every `POST /api/v1/**` body is read into memory with `readAllBytes()` without a size limit, before the `Idempotency-Key` check. A client can make the server buffer arbitrarily large bodies. Expected (follow-up story): reject bodies above a fixed limit (for example `413` problem detail) before buffering, or check `Content-Length` first. |
+| F-2 | minor    | `src/main/kotlin/com/example/kotlintest/user/UserDtos.kt:16`, `:20` | `@Size(max = 100)` / `@Size(max = 254)` count UTF-16 code units, while R-2 says "characters": a `name` of 51–100 supplementary characters (for example emoji) is rejected with `400` although it has at most 100 characters. Expected: count code points (`String.codePointCount`) or state in the story that the limit is in UTF-16 units. |
+
+Both findings are minor and do not block completion; they should go into a follow-up story with `related: [STORY-001]`.

@@ -3,8 +3,8 @@ id: STORY-002
 title: Update user name and email
 status: Pending
 created: 2026-11-08
-updated: 2026-11-08
-depends_on: [STORY-001]
+updated: 2026-11-09
+depends_on: [STORY-001, STORY-009]
 related: []
 ---
 
@@ -28,7 +28,8 @@ result and needs no `Idempotency-Key`.
 - **R-2:** A request must change at least one field: a body with neither `name` nor `email` (or both `null`) is rejected
   with `400`.
 - **R-3:** The same validation and normalization as on registration apply (STORY-001 R-2): `name` trimmed, 1–100
-  characters; `email` trimmed, valid, at most 254 characters, stored in lower case.
+  characters; `email` trimmed, valid, at most 254 characters, stored in lower case. Lengths are counted in Unicode code
+  points (STORY-009).
 - **R-4:** Changing the email to one used by another user (in any letter case) is rejected with `409`. Changing a user's
   email to their own email in a different letter case is allowed.
 - **R-5:** Repeating the same update gives the same `200` response and leaves the user unchanged. The endpoint does not
@@ -76,12 +77,15 @@ No migration. Uses `users` from STORY-001.
 
 - `user/`: `UserController.kt` (new endpoint), `UserService.kt` (update logic), `UserDtos.kt` (update request DTO).
 - `common/`: reuse the existing exception mapping (`Email already in use`).
+- `common/validation/`: reuse the code-point length constraint from STORY-009 for `name` and `email` (not `@Size`).
 
 ### Constraints and notes
 
 - The duplicate-email check must also rely on the `UNIQUE` constraint on `users.email`, so concurrent updates can't
   create duplicates. A constraint violation is mapped to `409 Email already in use`, never `500`.
 - An `Idempotency-Key` header sent with `PATCH` is ignored.
+- 2026-11-09 (story-writer, from STORY-001 Review 1 F-2): lengths are counted in Unicode code points, as decided in
+  STORY-009; this story now depends on STORY-009 and has AC-9.
 
 ## Acceptance criteria
 
@@ -107,6 +111,10 @@ Tests share one database, so every test uses its own unique emails.
   `"dave-<unique>@example.com"`.
 - **AC-8:** Given no user with a given ID, when the client sends `PATCH /api/v1/users/{id}` with a valid body, then the
   response is `404` with `Content-Type: application/problem+json`.
+- **AC-9:** Given a user, when the client sends `PATCH /api/v1/users/{id}` with `name` = 100 × `😀` (U+1F600, one code
+  point and two UTF-16 units each), then the response is `200` with that `name` and the `users` row stores it. When the
+  client then sends `PATCH` with `name` = 101 × `😀`, then the response is `400` with
+  `Content-Type: application/problem+json` and the `users` row still has the 100 × `😀` name.
 
 ## Open questions
 

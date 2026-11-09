@@ -3,8 +3,8 @@ id: STORY-003
 title: Manage goods
 status: Pending
 created: 2026-11-08
-updated: 2026-11-08
-depends_on: [STORY-001]
+updated: 2026-11-09
+depends_on: [STORY-001, STORY-009]
 related: []
 ---
 
@@ -25,7 +25,7 @@ mechanism from STORY-001. Updates set absolute values, so they are idempotent by
 ## Requirements
 
 - **R-1:** A client can create a good with a `name`, a `quantity` in stock and a `price`.
-- **R-2:** `name` is trimmed and must be 1–200 characters long after trimming. `quantity` is an integer from `0` to
+- **R-2:** `name` is trimmed and must be 1–200 characters (Unicode code points, STORY-009) long after trimming. `quantity` is an integer from `0` to
   `1000000`. `price` is a money string in the project's money format (STORY-001) from `"0.01"` to `"10000000.00"`; any
   other type or format is rejected with `400`. Names don't have to be unique.
 - **R-3:** Creating a good requires an `Idempotency-Key` and follows the idempotency rules of STORY-001 (replay, key
@@ -72,7 +72,7 @@ mechanism from STORY-001. Updates set absolute values, so they are idempotent by
 
 On creation `updatedAt` equals `createdAt`.
 
-**Validation** (all → `400`): `name` required/not blank/1–200 after trimming; `quantity` required, `0..1000000`;
+**Validation** (all → `400`): `name` required/not blank/1–200 Unicode code points after trimming; `quantity` required, `0..1000000`;
 `price` required, a money string (STORY-001 *Money format*) from `"0.01"` to `"10000000.00"`, so a JSON number or a
 badly formatted string is rejected; malformed JSON. The database stores `price` in minor units (`"15.00"` → `1500`). For `PATCH`, the same rules apply to every non-null field, and a body
 without any non-null field → `400`.
@@ -108,11 +108,14 @@ API validation rules only. The database guarantees `quantity >= 0` and
 - `good/`: `Good.kt`, `GoodRepository.kt`, `GoodService.kt`, `GoodController.kt`, `GoodDtos.kt`.
 - `common/idempotency/`: reused as is for `POST /api/v1/goods`.
 - `common/`: map `OptimisticLockingFailureException` to `409 Concurrent modification` (if not already mapped).
+- `common/validation/`: reuse the code-point length constraint from STORY-009 for `name` (not `@Size`).
 
 ### Constraints and notes
 
 - `@Version` on `Good` (`version` column): STORY-005 decreases stock concurrently with updates.
 - Add `Concurrent modification` to the error titles table in `AGENTS.md`.
+- 2026-11-09 (story-writer, from STORY-001 Review 1 F-2): the `name` length is counted in Unicode code points, as
+  decided in STORY-009; this story now depends on STORY-009 and has AC-14.
 
 ## Acceptance criteria
 
@@ -168,6 +171,10 @@ Tests share one database, so every test uses its own unique idempotency keys and
   `"9999999.99"`, then each response returns exactly the same `price` string, the rows have `price` `29`, `57`, `115`
   and `999999999` respectively (values that floating-point conversion gets wrong), and `typeof(price)` is `'integer'`
   for each row. Patching a good to `"0.29"` and then reading it with `GET` returns `"0.29"` and row `price = 29`.
+- **AC-14:** Given a new key, when the client creates a good with `name` = 200 × `😀` (U+1F600, one code point and two
+  UTF-16 units each), then the response is `201` with that `name` and `SELECT length(name)` of the row returns `200`.
+  With another new key and `name` = 201 × `😀`, the response is `400` and the number of rows in `goods` is unchanged.
+  Patching the first good with `{"name":"<201 × 😀>"}` returns `400` and the row is unchanged.
 
 ## Open questions
 

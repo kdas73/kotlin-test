@@ -51,8 +51,8 @@ If no story ID is given, list the stories with status `In Review`, ask the user 
    - **Requirements:** for every `R-n`, find the code that fulfils it.
    - **Acceptance criteria:** the locked acceptance tests are the primary evidence. For every `AC-n`, confirm its locked
      test passes, and that the implementation really satisfies the AC rather than special-casing the test. Additional
-     tests by the implementer must be meaningful. If needed, run the app (`./gradlew bootRun`) and exercise the endpoint
-     with `curl`.
+     tests by the implementer must be meaningful. If needed, run the app in sandbox mode (`/app start sandbox`, i.e.
+     `python3 scripts/app.py start sandbox`; stop it afterwards) and exercise the endpoint with `curl`.
    - **Previous findings:** on a re-review, confirm that every finding from the latest review was addressed.
    - **Conventions (AGENTS.md):**
      - Flyway migration for schema changes, and applied migrations are unchanged

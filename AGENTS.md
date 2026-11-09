@@ -116,13 +116,26 @@ The JDK 25 toolchain is auto-downloaded on first run (foojay resolver in `settin
 | Clean                        | `./gradlew clean`                            |
 | Health check (app running)   | `curl http://localhost:8080/actuator/health` |
 
+**Agents build, test and run the app through `scripts/app.py`** (Claude Code skill: [`/app`](.claude/skills/app/SKILL.md)).
+It wraps the commands above, prints a test summary, waits until the app is healthy, and stops it without leaving
+stray JVMs. Don't start `./gradlew bootRun` directly as an agent.
+
+| Task                                   | Command                                                    |
+|----------------------------------------|------------------------------------------------------------|
+| Build / tests with a summary           | `python3 scripts/app.py build`, `python3 scripts/app.py test [--class NAME \| --story NNN] [--rerun]` |
+| Run on the real DB (`data/app.db`, port 8080) | `python3 scripts/app.py start work`                 |
+| Run on a fresh throwaway DB (`build/app/sandbox.db`, port 8081) | `python3 scripts/app.py start sandbox` |
+| Stop / status / logs                   | `python3 scripts/app.py stop work\|sandbox\|all`, `status`, `logs <mode>` |
+
+Use `sandbox` for manual checks with `curl`, and stop every mode you started before you finish.
+
 ## Project layout
 
 ```
 src/main/kotlin/com/example/kotlintest/
 ├── KotlinTestApplication.kt      # entry point
-├── config/                       # cross-cutting configuration (SqliteDialect, ...)
-├── common/                       # shared code: error handling, base types
+├── config/                       # cross-cutting configuration (SqliteDialect, Instant<->TEXT converters, Clock)
+├── common/                       # shared code: ApiException + ApiExceptionHandler, PageResponse, money/, idempotency/
 └── <feature>/                    # one package per feature (package-by-feature), e.g. `book/`
     ├── BookController.kt         # REST endpoints, DTO <-> domain mapping
     ├── BookService.kt            # business logic, transactions
@@ -139,11 +152,13 @@ src/test/resources/application-test.yaml   # `test` profile (in-memory SQLite)
 data/                             # runtime SQLite DB (app.db) — gitignored, only .gitkeep is tracked
 docs/stories/                     # work items: README.md (rules), TEMPLATE.md, STORY-NNN-*.md
 scripts/locked-tests.py           # hash / verify locked acceptance tests (Python 3, standard library only)
+scripts/app.py                    # build, test, start/stop the app in work or sandbox mode (Python 3, stdlib only);
+                                  #   runtime state and logs in build/app/
 .claude/
 ├── settings.json                 # project hooks registration
 ├── hooks/                        # PreToolUse hooks (Python 3, standard library only):
 │                                 #   protect-completed-stories.py, protect-locked-tests.py, block-git-history.py
-└── skills/                       # story-writer, test-writer, test-reviewer, implementer, reviewer
+└── skills/                       # story-writer, test-writer, test-reviewer, implementer, reviewer, app
 ```
 
 ## Kotlin & Spring conventions
@@ -179,6 +194,64 @@ scripts/locked-tests.py           # hash / verify locked acceptance tests (Pytho
 - Collections are paginated (`?page=0&size=20&sort=name,asc`); never return unbounded lists.
 - Actuator exposes only `health` and `info`.
 
+### Pagination (every collection endpoint)
+
+- Query parameters: `page` (0-based, default `0`), `size` (default `20`, capped at `100` by
+  `spring.data.web.pageable.*` in `application.yaml`), `sort` (`property,asc|desc`, default `id,asc`).
+- Take a `Pageable` parameter and call `pageable.withValidatedSort(ALLOWED)` (`common/PageResponse.kt`). It rejects
+  unknown sort properties with `400` (`InvalidSortPropertyException`), defaults to `id ASC` and appends `id` as a
+  tie-breaker.
+- Return `PageResponse.from(page, mapper)`. The response shape is always:
+  `{"content": [...], "page": {"size": 20, "number": 0, "totalElements": 1, "totalPages": 1}}`.
+
+### Money format (every money field)
+
+- In JSON, money is a **string** in major units with exactly 2 fraction digits: `"50.00"`, `"0.05"`, `"-15.00"`.
+  Requests accept only `^(0|[1-9][0-9]*)\.[0-9]{2}$` (no sign); anything else, including JSON numbers, is `400`.
+- In code and in the database, money is a `Long` number of minor units (cents), stored in `INTEGER` columns.
+  Convert only with `common/money/Money.kt` (`Money.parse` / `Money.format`, string and integer arithmetic).
+- **Never** use `Double`, `Float`, SQL `REAL`/`NUMERIC` or Jackson number nodes for money. Do arithmetic on `Long`
+  with `Math.addExact` / `Math.multiplyExact`.
+
+### Idempotency-Key (every `POST` under `/api/v1`)
+
+- Every `POST` endpoint requires the header `Idempotency-Key`: 1–255 visible ASCII characters (`0x21`–`0x7E`). It is
+  ignored on other methods.
+- `common/idempotency/` implements the rules for all endpoints:
+  - `CachedBodyFilter` makes the body re-readable.
+  - `IdempotencyInterceptor` checks the header, replays stored responses (`Idempotent-Replayed: true`), and rejects
+    reused keys (`422`) and concurrent same-key requests (`409`) **before** validation.
+  - `IdempotentExecutor` stores the `2xx` response in `idempotency_keys` **in the same transaction** as the
+    business change. Failed requests leave no record.
+- A new `POST` endpoint wraps its work in the executor and builds the full `ResponseEntity` inside it:
+  ```kotlin
+  @PostMapping
+  fun create(@Valid @RequestBody body: CreateThingRequest, request: HttpServletRequest) =
+      idempotentExecutor.execute(request) {
+          val thing = ThingResponse.from(thingService.create(...))
+          ResponseEntity.created(URI.create("/api/v1/things/${thing.id}")).body(thing)
+      }
+  ```
+  Services called inside it use `@Transactional` (`REQUIRED`) and join the executor's transaction.
+- The fingerprint is the method, the path without the query string, and the SHA-256 of the raw body bytes.
+
+### Errors
+
+- Domain errors extend `common/ApiException(status, title, detail)`. `common/ApiExceptionHandler` (the single
+  `@RestControllerAdvice`, a `ResponseEntityExceptionHandler`) renders them, Spring MVC errors and a catch-all `500`
+  as `application/problem+json`.
+- Fixed titles (clients may rely on them):
+
+| Status | Title                             | When                                   |
+|--------|-----------------------------------|----------------------------------------|
+| `400`  | `Idempotency-Key header required` | `POST` header missing or blank         |
+| `400`  | `Invalid Idempotency-Key header`  | header too long or bad characters      |
+| `400`  | `Invalid sort property`           | `sort` names an unsupported property   |
+| `404`  | `User not found`                  | unknown user ID                        |
+| `409`  | `Email already in use`            | another user has this email (any case) |
+| `409`  | `Request in progress`             | same key is being processed            |
+| `422`  | `Idempotency key reused`          | same key, different request            |
+
 ## Persistence & SQLite rules
 
 - **Schema changes go only through Flyway migrations** in `src/main/resources/db/migration`, named `V{n}__{description}.sql`
@@ -187,8 +260,11 @@ scripts/locked-tests.py           # hash / verify locked acceptance tests (Pytho
 - Table and column names are `snake_case`. Spring Data JDBC's default naming strategy maps `camelCase` properties to them.
 - Foreign keys are enforced through the connection URL (`foreign_keys=true`); always declare them in migrations.
 - SQLite has few types (`INTEGER`, `REAL`, `TEXT`, `BLOB`). Store booleans as `INTEGER` 0/1 and money as `INTEGER` minor units.
-  For timestamps, choose one representation (ISO-8601 UTC `TEXT` preferred) and add a `@DataJdbcTest` round-trip test the
-  first time a temporal column is introduced. The driver's default for dates is epoch milliseconds.
+- **Timestamps** are `Instant` in code and ISO-8601 UTC `TEXT` with exactly 3 fraction digits in the database
+  (`2026-11-08T12:00:00.123Z`). The fixed width keeps the text sortable. `config/InstantTextConverters.kt` does the
+  conversion and is registered in `SqliteDialectConfig.jdbcCustomConversions()`; `UserPersistenceTest` covers the
+  round trip. Get the current time from the injected `Clock` bean and truncate it to milliseconds, so the API returns
+  the same value that is stored.
 - `ALTER TABLE` is limited in SQLite (dropping or changing columns may need the create-copy-drop-rename pattern; see the SQLite docs).
 - **Concurrency:** the DB runs in WAL mode with `busy_timeout=5000`. There is no `SELECT ... FOR UPDATE`: a write
   transaction locks the whole database, so pessimistic locks render as nothing. Use `@Version` optimistic locking where needed.

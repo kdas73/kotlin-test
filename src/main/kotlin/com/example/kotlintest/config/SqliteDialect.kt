@@ -2,8 +2,10 @@ package com.example.kotlintest.config
 
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.data.jdbc.core.convert.JdbcCustomConversions
 import org.springframework.data.jdbc.core.dialect.JdbcArrayColumns
 import org.springframework.data.jdbc.core.dialect.JdbcDialect
+import org.springframework.data.jdbc.repository.config.JdbcConfiguration
 import org.springframework.data.relational.core.dialect.AnsiDialect
 import org.springframework.data.relational.core.dialect.LimitClause
 import org.springframework.data.relational.core.dialect.LockClause
@@ -47,4 +49,12 @@ class SqliteDialectConfig {
     /** Replaces Boot's auto-detected `jdbcDialect` bean, which is `@ConditionalOnMissingBean`. */
     @Bean
     fun jdbcDialect(): JdbcDialect = SqliteDialect
+
+    /**
+     * Replaces Boot's `jdbcCustomConversions` bean (`@ConditionalOnMissingBean`): the SQLite store conversions plus
+     * `Instant` <-> ISO-8601 UTC `TEXT` (see [InstantTextFormat]).
+     */
+    @Bean
+    fun jdbcCustomConversions(): JdbcCustomConversions =
+        JdbcConfiguration.createCustomConversions(SqliteDialect, listOf(InstantToTextConverter, TextToInstantConverter))
 }
