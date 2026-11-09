@@ -7,6 +7,7 @@ import jakarta.validation.Valid
 import org.springframework.data.domain.Pageable
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
@@ -33,6 +34,11 @@ class UserController(
 
     @GetMapping("/{id}")
     fun get(@PathVariable id: Long): UserResponse = UserResponse.from(userService.get(id))
+
+    /** Partial update. Idempotent by itself (absolute values), so no `Idempotency-Key` is required or recorded. */
+    @PatchMapping("/{id}")
+    fun update(@PathVariable id: Long, @Valid @RequestBody request: UpdateUserRequest): UserResponse =
+        UserResponse.from(userService.update(id, request.name, request.email))
 
     @GetMapping
     fun list(pageable: Pageable): PageResponse<UserResponse> =

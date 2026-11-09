@@ -6,15 +6,20 @@ import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTe
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment
 import org.springframework.http.MediaType
+import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.web.servlet.client.RestTestClient
 import java.util.UUID
+import kotlin.test.assertEquals
 
-/** Implementer's additional API checks for STORY-001 (not locked). */
+/** Implementer's additional API checks for STORY-001 and STORY-002 (not locked). */
 @SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)
 @AutoConfigureRestTestClient
 @ActiveProfiles("test")
-class UserApiTest(@Autowired private val client: RestTestClient) {
+class UserApiTest(
+    @Autowired private val client: RestTestClient,
+    @Autowired private val jdbc: JdbcTemplate,
+) {
 
     @Test
     fun `unknown sort property returns a 400 problem detail`() {
@@ -75,4 +80,67 @@ class UserApiTest(@Autowired private val client: RestTestClient) {
                 .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_JSON)
         }
     }
+
+    @Test
+    fun `PATCH ignores an Idempotency-Key header and records nothing`() {
+        val id = insertUser("Henry")
+        val keysBefore = countIdempotencyKeys()
+
+        client.patch().uri("/api/v1/users/{id}", id)
+            .contentType(MediaType.APPLICATION_JSON)
+            .header("Idempotency-Key", "not a valid key")
+            .body("""{"name":"Henry Ford"}""")
+            .exchange()
+            .expectStatus().isOk
+            .expectBody()
+            .jsonPath("$.name").isEqualTo("Henry Ford")
+
+        assertEquals(keysBefore, countIdempotencyKeys())
+    }
+
+    @Test
+    fun `PATCH with an email longer than 254 code points returns a 400 problem detail`() {
+        val id = insertUser("Ivy")
+        val email = "a".repeat(243) + "@example.com" // 255 code points
+
+        client.patch().uri("/api/v1/users/{id}", id)
+            .contentType(MediaType.APPLICATION_JSON)
+            .body("""{"email":"$email"}""")
+            .exchange()
+            .expectStatus().isBadRequest
+            .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+    }
+
+    @Test
+    fun `PATCH with a non-numeric user id returns a 400 problem detail`() {
+        client.patch().uri("/api/v1/users/abc")
+            .contentType(MediaType.APPLICATION_JSON)
+            .body("""{"name":"Jack"}""")
+            .exchange()
+            .expectStatus().isBadRequest
+            .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+    }
+
+    @Test
+    fun `PATCH of an unknown user returns a 404 problem detail titled User not found`() {
+        client.patch().uri("/api/v1/users/{id}", Long.MAX_VALUE)
+            .contentType(MediaType.APPLICATION_JSON)
+            .body("""{"name":"Kate"}""")
+            .exchange()
+            .expectStatus().isNotFound
+            .expectBody()
+            .jsonPath("$.title").isEqualTo("User not found")
+    }
+
+    private fun insertUser(name: String): Long {
+        val email = "${name.lowercase()}-${UUID.randomUUID()}@example.com"
+        jdbc.update(
+            "INSERT INTO users (name, email, created_at) VALUES (?, ?, ?)",
+            name, email, "2026-11-08T12:00:00.123Z",
+        )
+        return checkNotNull(jdbc.queryForObject("SELECT id FROM users WHERE email = ?", Long::class.javaObjectType, email))
+    }
+
+    private fun countIdempotencyKeys(): Long =
+        checkNotNull(jdbc.queryForObject("SELECT count(*) FROM idempotency_keys", Long::class.javaObjectType))
 }

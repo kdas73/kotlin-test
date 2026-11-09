@@ -42,6 +42,32 @@ class UserService(
         return user
     }
 
+    /**
+     * Updates the given fields of a user; a `null` argument leaves the field unchanged. Setting the values the user
+     * already has is a no-op, so repeating an update gives the same result.
+     *
+     * @param name already trimmed and validated, or `null`
+     * @param email already trimmed and validated, or `null`; stored in lower case
+     * @throws UserNotFoundException if the user does not exist
+     * @throws EmailAlreadyInUseException if another user has the same email in any letter case
+     */
+    @Transactional
+    fun update(id: Long, name: String?, email: String?): User {
+        val user = get(id)
+        val normalizedEmail = email?.lowercase(Locale.ROOT)
+        if (normalizedEmail != null && normalizedEmail != user.email && users.existsByEmail(normalizedEmail)) {
+            throw EmailAlreadyInUseException()
+        }
+        val updated = user.copy(name = name ?: user.name, email = normalizedEmail ?: user.email)
+        if (updated == user) return user
+        return try {
+            users.save(updated)
+        } catch (e: DataAccessException) {
+            if (e.isUniqueViolation("users.email")) throw EmailAlreadyInUseException()
+            throw e
+        }
+    }
+
     fun get(id: Long): User = users.findById(id).orElseThrow { UserNotFoundException(id) }
 
     fun list(pageable: Pageable): Page<User> = users.findAll(pageable.withValidatedSort(SORT_PROPERTIES))
