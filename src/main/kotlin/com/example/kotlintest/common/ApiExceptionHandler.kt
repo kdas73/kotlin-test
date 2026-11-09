@@ -1,6 +1,7 @@
 package com.example.kotlintest.common
 
 import org.slf4j.LoggerFactory
+import org.springframework.dao.OptimisticLockingFailureException
 import org.springframework.http.HttpStatus
 import org.springframework.http.ProblemDetail
 import org.springframework.http.ResponseEntity
@@ -25,6 +26,16 @@ class ApiExceptionHandler : ResponseEntityExceptionHandler() {
         problem.title = ex.title
         problem.detail = ex.message
         return ResponseEntity.status(ex.status).body(problem)
+    }
+
+    /** `409`: an update lost an optimistic-locking race (`@Version`). The client can reload and retry. */
+    @ExceptionHandler(OptimisticLockingFailureException::class)
+    fun handleOptimisticLocking(ex: OptimisticLockingFailureException): ResponseEntity<ProblemDetail> {
+        log.debug("Optimistic locking failure", ex)
+        val problem = ProblemDetail.forStatus(HttpStatus.CONFLICT)
+        problem.title = "Concurrent modification"
+        problem.detail = "The resource was modified concurrently. Reload it and try again."
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(problem)
     }
 
     /** Last resort: never leak messages, stack traces or SQL to the client. */

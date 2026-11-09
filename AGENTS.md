@@ -135,7 +135,7 @@ Use `sandbox` for manual checks with `curl`, and stop every mode you started bef
 src/main/kotlin/com/example/kotlintest/
 ├── KotlinTestApplication.kt      # entry point
 ├── config/                       # cross-cutting configuration (SqliteDialect, Instant<->TEXT converters, Clock)
-├── common/                       # shared code: ApiException + ApiExceptionHandler, PageResponse, money/, idempotency/, validation/
+├── common/                       # shared code: ApiException + ApiExceptionHandler, PageResponse, money/, idempotency/, json/, validation/
 └── <feature>/                    # one package per feature (package-by-feature), e.g. `book/`
     ├── BookController.kt         # REST endpoints, DTO <-> domain mapping
     ├── BookService.kt            # business logic, transactions
@@ -212,6 +212,12 @@ scripts/app.py                    # build, test, start/stop the app in work or s
   Requests accept only `^(0|[1-9][0-9]*)\.[0-9]{2}$` (no sign); anything else, including JSON numbers, is `400`.
 - In code and in the database, money is a `Long` number of minor units (cents), stored in `INTEGER` columns.
   Convert only with `common/money/Money.kt` (`Money.parse` / `Money.format`, string and integer arithmetic).
+- A money field in a request DTO is a `String?`. Annotate it with
+  `@JsonDeserialize(using = StringOnlyDeserializer::class)` (`common/json/`) so JSON numbers are rejected instead of
+  coerced to strings, and with `@field:MoneyAmount(min = "0.01", max = "...")` (`common/money/`), which checks the
+  format and the range. Convert it with `Money.parse` after validation. With an `@JsonCreator` factory, put
+  `@JsonDeserialize` on the factory parameter (see `good/GoodDtos.kt`).
+- Integer request fields that must not accept `10.5` or `"10"` use `IntegerOnlyDeserializer` (`common/json/`) the same way.
 - **Never** use `Double`, `Float`, SQL `REAL`/`NUMERIC` or Jackson number nodes for money. Do arithmetic on `Long`
   with `Math.addExact` / `Math.multiplyExact`.
 
@@ -250,7 +256,9 @@ scripts/app.py                    # build, test, start/stop the app in work or s
 | `400`  | `Invalid Idempotency-Key header`  | header too long or bad characters      |
 | `400`  | `Invalid sort property`           | `sort` names an unsupported property   |
 | `404`  | `User not found`                  | unknown user ID                        |
+| `404`  | `Good not found`                  | unknown good ID                        |
 | `409`  | `Email already in use`            | another user has this email (any case) |
+| `409`  | `Concurrent modification`         | an update lost an optimistic-locking (`@Version`) race |
 | `409`  | `Request in progress`             | same key is being processed            |
 | `422`  | `Idempotency key reused`          | same key, different request            |
 
